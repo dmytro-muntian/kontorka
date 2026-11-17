@@ -903,10 +903,97 @@
       .dc-btn { min-height: 42px; }
     }
     @media (prefers-reduced-motion: reduce) { .disclaimer { transition: none; } }
+
+    /* ---------- переход между сценами: затухание в чёрное и появление из чёрного ---------- */
+    .scene-fade { position: fixed; inset: 0; z-index: 2000; background: #000; opacity: 0; pointer-events: none;
+      transition: opacity 700ms ease-in-out; }
+    .scene-fade.is-on { opacity: 1; }
+    .scene-fade.is-blocking { pointer-events: auto; }
+
+    /* ---------- вступительный экран: вакансия на планшете ---------- */
+    .rc-root { position: absolute; inset: 0; z-index: 15; overflow: hidden; background: #000; color: #0f1f3d; }
+    .rc-scene { position: absolute; inset: 0; opacity: 0; transition: opacity 1100ms ease-in-out; }
+    .rc-scene.is-visible { opacity: 1; }
+    .rc-stage { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+      width: min(100vw, calc(100vh * var(--rc-ratio, 1.78)));
+      width: min(100vw, calc(100dvh * var(--rc-ratio, 1.78))); }
+    .rc-photo { position: absolute; inset: 0; width: 100%; height: 100%; display: block; pointer-events: none; }
+    /* Холст 1200x800 px; JS растягивает его матрицей matrix3d на стекло планшета. Внутри всё в обычных px. */
+    .rc-screen { position: absolute; left: 0; top: 0; transform-origin: 0 0; overflow: hidden; visibility: hidden;
+      display: flex; flex-direction: column; background: #f4f6fa; color: #0f1f3d;
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      -webkit-font-smoothing: antialiased; filter: brightness(0.97) contrast(1.02); }
+    .rc-screen.is-ready { visibility: visible; }
+    .rc-screen button { font: inherit; color: inherit; cursor: pointer; touch-action: manipulation; }
+
+    .rc-header { flex: 0 0 76px; display: flex; align-items: center; gap: 36px; padding: 0 40px; background: #fff; border-bottom: 2px solid #dde3ee; }
+    .rc-brand { display: flex; align-items: center; gap: 14px; }
+    .rc-logo { display: grid; place-items: center; width: 46px; height: 46px; border-radius: 12px; background: #2457d6; color: #fff; }
+    .rc-logo svg { width: 28px; height: 28px; }
+    .rc-brand-text { display: flex; flex-direction: column; line-height: 1.1; }
+    .rc-brand-name { font-size: 26px; letter-spacing: 0.06em; color: #0f1f3d; }
+    .rc-brand-tag { font-size: 15px; color: #5b6b86; letter-spacing: 0.04em; }
+    .rc-nav { display: flex; gap: 30px; margin-left: 8px; flex: 1; }
+    .rc-nav-item { font-size: 21px; color: #5b6b86; padding: 6px 0; border-bottom: 3px solid transparent; white-space: nowrap; }
+    .rc-nav-item.is-active { color: #0f1f3d; font-weight: 600; border-bottom-color: #2457d6; }
+    .rc-lang { display: flex; padding: 4px; border-radius: 999px; background: #e8edf6; }
+    .rc-lang-btn { min-width: 62px; height: 44px; border: 0; border-radius: 999px; background: transparent; font-size: 20px; font-weight: 700; color: #5b6b86; }
+    .rc-lang-btn[aria-pressed="true"] { background: #fff; color: #2457d6; box-shadow: 0 1px 4px rgba(15,31,61,0.18); }
+
+    .rc-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: #b9c4d8 transparent; -webkit-overflow-scrolling: touch; }
+    .rc-page { padding: 34px 56px 30px; }
+    .rc-crumbs { display: flex; align-items: center; gap: 12px; font-size: 20px; color: #5b6b86; }
+    .rc-crumbs i { font-style: normal; color: #b4bfd3; }
+    .rc-chip { padding: 5px 16px; border-radius: 999px; background: #e3ebfb; color: #1f4bbd; font-weight: 600; }
+    .rc-title { margin: 18px 0 16px; font-size: 52px; line-height: 1.12; font-weight: 750; letter-spacing: -0.01em; color: #0b1a38; text-wrap: balance; }
+    .rc-company { display: flex; flex-wrap: wrap; gap: 14px 34px; font-size: 25px; color: #31405c; }
+    .rc-company-item { display: inline-flex; align-items: center; gap: 10px; }
+    .rc-company b { font-weight: 700; color: #0f1f3d; }
+    .rc-icon { display: inline-grid; width: 28px; height: 28px; color: #2457d6; }
+    .rc-icon svg { width: 100%; height: 100%; }
+    .rc-facts { display: grid; grid-template-columns: 1.5fr 1fr 1fr 1fr; gap: 16px; margin: 28px 0 8px; }
+    .rc-fact { display: flex; flex-direction: column; gap: 8px; padding: 18px 20px; border: 2px solid #dde3ee; border-radius: 16px; background: #fff; }
+    .rc-fact--wide { border-color: #b9ccf3; background: #f0f5ff; }
+    .rc-fact-label { font-size: 17px; letter-spacing: 0.08em; text-transform: uppercase; color: #5b6b86; }
+    .rc-fact-value { font-size: 27px; line-height: 1.2; font-weight: 700; color: #0b1a38; }
+    .rc-section { margin-top: 30px; }
+    .rc-section h2 { margin: 0 0 12px; font-size: 31px; font-weight: 700; color: #0b1a38; }
+    .rc-section p { margin: 0; font-size: 24px; line-height: 1.5; color: #31405c; }
+    .rc-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 0 44px; }
+    .rc-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 12px; }
+    .rc-list li { position: relative; padding-left: 30px; font-size: 24px; line-height: 1.4; color: #31405c; }
+    .rc-list li::before { content: ''; position: absolute; left: 4px; top: 0.62em; width: 11px; height: 11px; border-radius: 50%; background: #2457d6; }
+
+    .rc-bar { flex: 0 0 104px; display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 0 40px; background: #fff; border-top: 2px solid #dde3ee; box-shadow: 0 -6px 18px rgba(15,31,61,0.06); }
+    .rc-bar-hint { font-size: 22px; color: #5b6b86; }
+    .rc-apply { min-width: 300px; height: 72px; padding: 0 40px; border: 0; border-radius: 18px; background: #2457d6; color: #fff; font-size: 28px; font-weight: 700; box-shadow: 0 6px 16px rgba(36,87,214,0.32); }
+    .rc-apply:active, .rc-apply:focus-visible { background: #1b45b0; outline: none; transform: translateY(1px); }
+    .rc-footer { flex: 0 0 46px; display: flex; align-items: center; justify-content: space-between; padding: 0 40px; background: #e8edf6; font-size: 18px; color: #5b6b86; letter-spacing: 0.02em; }
+
+    .rc-confirm { position: absolute; inset: 0; z-index: 3; display: flex; align-items: center; justify-content: center; background: rgba(11,26,56,0.62); opacity: 0; transition: opacity 300ms ease; }
+    .rc-confirm[hidden] { display: none; }
+    .rc-confirm.is-open { opacity: 1; }
+    .rc-confirm-card { width: 780px; max-width: 90%; box-sizing: border-box; padding: 40px 48px; border-radius: 24px; background: #fff; text-align: center; box-shadow: 0 24px 60px rgba(0,0,0,0.35); }
+    .rc-confirm-icon { display: inline-grid; width: 88px; height: 88px; color: #1f9d63; }
+    .rc-confirm-icon svg { width: 100%; height: 100%; }
+    .rc-confirm-card h2 { margin: 14px 0 10px; font-size: 38px; color: #0b1a38; }
+    .rc-confirm-card p { margin: 0 0 28px; font-size: 27px; line-height: 1.45; color: #31405c; }
+    .rc-apply--next { min-width: 260px; }
+
+    /* Блик и внутренняя тень стекла: очень слабые, текст не страдает */
+    .rc-glare { position: absolute; inset: 0; z-index: 4; pointer-events: none; border-radius: inherit;
+      background:
+        linear-gradient(112deg, transparent 58%, rgba(190,215,240,0.07) 64%, rgba(190,215,240,0.03) 72%, transparent 78%),
+        linear-gradient(180deg, rgba(255,255,255,0.025), transparent 30%);
+      box-shadow: inset 0 0 70px rgba(0,12,32,0.16); }
+    @media (prefers-reduced-motion: reduce) {
+      .rc-scene, .rc-confirm { transition-duration: 1ms; }
+    }
   </style>
 </head>
 <body>
   <div id="app"></div>
+  <div id="scene-fade" class="scene-fade" aria-hidden="true"></div>
   <script type="module" src="src/main.js"></script>
 
   <div id="disclaimer" class="disclaimer" role="dialog" aria-modal="true" aria-labelledby="dc-title">
@@ -939,6 +1026,17 @@
       </div>
     </div>
   </div>
+  <script>
+    // Перезагрузка после смены языка на вступительном экране: дисклеймер и вступление не повторяются,
+    // сцена стартует из чёрного (main.js сам проявит её и снимет флаг).
+    try {
+      if (sessionStorage.getItem('kontorka.skipIntro') === '1') {
+        document.getElementById('disclaimer').hidden = true;
+        window.__kontorkaDisclaimerAccepted = true;
+        document.getElementById('scene-fade').classList.add('is-on');
+      }
+    } catch (e) { /* sessionStorage недоступен: покажется обычный вход */ }
+  </script>
   <script type="module">
     // Дисклеймер: клик по «ОК» это первое касание, которое разблокирует звук.
     const box = document.getElementById('disclaimer');
@@ -986,6 +1084,7 @@
 
     function accept() {
       try { if (audioMod) { audioMod.init && audioMod.init(); const c = audioMod.getContext && audioMod.getContext(); if (c && c.resume) c.resume(); } } catch (e) { console.warn('[disclaimer] audio init:', e); }
+      window.__kontorkaDisclaimerAccepted = true;
       window.dispatchEvent(new CustomEvent('kontorka:disclaimer-accepted'));
       box.classList.add('is-leaving');
       setTimeout(() => box.remove(), 400);

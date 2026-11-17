@@ -4,6 +4,8 @@ import { state, set, patch, emit, on, newNight, recalcLoad, tickTokens, save, lo
 import { loadLang, t } from './i18n.js';
 import * as audio from './audio.js';
 import * as desk from './ui/desk.js';
+import * as recruitment from './ui/recruitment.js';
+import { fadeIn, fadeOut, fadeThrough, isBusy } from './ui/fade.js';
 import * as cameras from './ui/cameras.js';
 import * as teams from './ui/teams.js';
 import * as minigames from './ui/minigames.js';
@@ -19,6 +21,7 @@ const ENEMY_MODULES = { mr404 };   // id врага из nights.json -> моду
 const MAX_DT = 0.1; // секунды
 const NIGHT_SEC = 360;
 const SETTINGS_KEY = 'kontorka.settings.v1';
+const INTRO_SKIP_KEY = 'kontorka.skipIntro';   // sessionStorage: одноразовый пропуск вступления после смены языка
 
 function detectDeviceLanguage() {
   const languages = navigator.languages?.length ? navigator.languages : [navigator.language];
@@ -92,19 +95,21 @@ on('intent:startShift', () => {
 });
 
 on('intent:loadGame', () => {
-  if (state.running) return;
+  if (state.running || isBusy()) return;
   if (!load()) {
     emit('save:change', { available: false });
     return;
   }
   audio.init();
-  if (state.progress.gameComplete) {
-    emit('ending:show', { ending: state.flags.ending, score: state.mgScore });
-  } else if (state.progress.minigamePending !== null) {
-    resumeMinigame();
-  } else {
-    launchNight();
-  }
+  fadeThrough(() => {
+    if (state.progress.gameComplete) {
+      emit('ending:show', { ending: state.flags.ending, score: state.mgScore });
+    } else if (state.progress.minigamePending !== null) {
+      resumeMinigame();
+    } else {
+      launchNight();
+    }
+  }, { in: 600 });
 });
 
 on('intent:pauseGame', () => {
@@ -128,6 +133,7 @@ on('intent:resumeGame', () => {
 });
 
 on('intent:returnMainMenu', () => {
+  if (isBusy()) return;
   gamePaused = false;
   pausedShift = false;
   last = null;
@@ -147,7 +153,7 @@ on('intent:returnMainMenu', () => {
   audio.setAmbient([]);
   audio.setPaused(true);
   save();
-  emit('game:menu');
+  fadeThrough(() => emit('game:menu'));
 });
 
 function launchNight() {
@@ -164,14 +170,16 @@ function launchNight() {
 }
 
 on('intent:newGame', () => {
-  if (state.running) return;
-  resetSave();
-  set('night', 1);
-  set('appetite', 0);
-  set('mgScore', { correct: 0, total: 0, weighted: 0, weightTotal: 0, pressure: 0 });
-  set('flags', { demoDone: false, ending: null, unlocked: [] });
-  set('progress', { completedNight: 0, minigamePending: null, minigameIndex: 0, gameComplete: false, summary: null });
-  launchNight();
+  if (state.running || isBusy()) return;
+  fadeThrough(() => {
+    resetSave();
+    set('night', 1);
+    set('appetite', 0);
+    set('mgScore', { correct: 0, total: 0, weighted: 0, weightTotal: 0, pressure: 0 });
+    set('flags', { demoDone: false, ending: null, unlocked: [] });
+    set('progress', { completedNight: 0, minigamePending: null, minigameIndex: 0, gameComplete: false, summary: null });
+    launchNight();
+  }, { in: 600 });
 });
 
 function gameForNight(night) {
@@ -220,7 +228,7 @@ on('night:end', ({ n, failed }) => {
     summary: minigameSummary(),
   });
   save();
-  resumeMinigame();
+  fadeThrough(() => resumeMinigame(), { out: 900 });
 });
 
 on('intent:minigameBegin', () => {
@@ -294,7 +302,7 @@ on('intent:minigameFinish', () => {
     set('progress', { completedNight: night, minigamePending: null, minigameIndex: 0, gameComplete: false, summary: null });
     set('night', night + 1);
     save();
-    emit('minigame:close', { nextNight: night + 1 });
+    fadeThrough(() => emit('minigame:close', { nextNight: night + 1 }));
     return;
   }
   const ratio = state.mgScore.weightTotal > 0 ? state.mgScore.weighted / state.mgScore.weightTotal : 0;
@@ -302,12 +310,12 @@ on('intent:minigameFinish', () => {
   set('flags', { ...state.flags, demoDone: true, ending });
   set('progress', { completedNight: 5, minigamePending: null, minigameIndex: 0, gameComplete: true, summary: null });
   save();
-  emit('ending:show', { ending, score: state.mgScore, ratio });
+  fadeThrough(() => emit('ending:show', { ending, score: state.mgScore, ratio }));
 });
 
 on('intent:endingClose', () => {
-  if (!state.progress.gameComplete) return;
-  emit('minigame:close', { ending: state.flags.ending });
+  if (!state.progress.gameComplete || isBusy()) return;
+  fadeThrough(() => emit('minigame:close', { ending: state.flags.ending }));
 });
 
 // Открытие камеры: состояние и событие; вид рисует ui/cameras.js.
@@ -592,6 +600,31 @@ async function loadJSON(path) {
   return res.json();
 }
 
+// ---------- вступительный экран (вакансия на планшете) ----------
+function startIntro(ctx) {
+  let skip = false;
+  try {
+    skip = sessionStorage.getItem(INTRO_SKIP_KEY) === '1';
+    sessionStorage.removeItem(INTRO_SKIP_KEY);
+  } catch (e) { /* без sessionStorage вступление просто покажется */ }
+  if (skip) {          // вернулись после смены языка: страница уже закрыта чёрным слоем, проявляем её
+    fadeIn({ in: 1100 });
+    return;
+  }
+  if (new URLSearchParams(location.search).get('intro') === '0') return;
+  recruitment.mount(document.getElementById('app'), ctx);
+}
+
+on('intent:recruitDone', ({ langChanged = false } = {}) => {
+  if (langChanged) {
+    // Остальной интерфейс собран на прежнем языке: перезагружаем из чёрного, вступление не повторяется.
+    try { sessionStorage.setItem(INTRO_SKIP_KEY, '1'); } catch (e) { /* ничего страшного */ }
+    fadeOut({ out: 800 }).then(() => location.reload());
+    return;
+  }
+  fadeThrough(() => recruitment.unmount());   // главное меню уже собрано под вступлением
+});
+
 async function boot() {
   let settings = { language: detectDeviceLanguage(), languageAuto: true, volume: 0.8 };
   try {
@@ -655,6 +688,7 @@ async function boot() {
     emit('ending:show', { ending: state.flags.ending, score: state.mgScore });
   }
 
+  startIntro(ctx);
   requestAnimationFrame(frame);
 }
 
