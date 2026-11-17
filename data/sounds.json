@@ -189,25 +189,18 @@
     "volume": 0.32
   },
   {
-    "id": "call_ringback",
-    "file": "assets/audio/call_ringback.mp3",
-    "kind": "ui",
-    "loop": true,
-    "volume": 0.37
-  },
-  {
     "id": "call_pickup",
     "file": "assets/audio/call_pickup.mp3",
     "kind": "ui",
     "loop": false,
-    "volume": 0.53
+    "volume": 0.9
   },
   {
     "id": "call_hangup",
     "file": "assets/audio/call_hangup.mp3",
     "kind": "ui",
     "loop": false,
-    "volume": 0.28
+    "volume": 0.85
   },
   {
     "id": "whistle_mr404",

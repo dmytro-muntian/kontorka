@@ -21,7 +21,7 @@ function initial() {
     camera: null,       // номер открытой камеры или null
     call: { active: false, left: 0, cooldown: 0, at: null }, // звонок-приманка: идёт, осталось, перезарядка (сек), позиция графа, куда звонят
     repairing: false,   // удерживается кнопка починки
-    phone: { status: 'idle', kind: null, id: null, name: null, t: 0, sub: null }, // звонки в Teams (calls.js): status incoming | playing | ringing | noanswer | open
+    phone: { status: 'idle', kind: null, id: null, name: null, t: 0, sub: null }, // звонки в Teams (calls.js): status incoming | playing
     flags: { demoDone: false, ending: null, unlocked: [] },
   };
 }

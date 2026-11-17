@@ -3,6 +3,7 @@
     "night": 1,
     "kind": "story",
     "audio": "assets/audio/calls/n1.mp3",
+    "volume": 0.5,
     "autoplay": true,
     "startAtSec": 3,
     "ringSec": 20,
@@ -11,31 +12,31 @@
     "lines": [
       {
         "from": 0,
-        "to": 1.7,
+        "to": 2.4,
         "key": "calls.n1.l01"
       },
       {
-        "from": 1.7,
-        "to": 6.5,
+        "from": 2.4,
+        "to": 7.1,
         "key": "calls.n1.l02"
       },
       {
-        "from": 6.5,
-        "to": 12.4,
+        "from": 7.1,
+        "to": 13.0,
         "key": "calls.n1.l03"
       },
       {
-        "from": 12.4,
-        "to": 15.0,
+        "from": 13.0,
+        "to": 15.6,
         "key": "calls.n1.l04"
       },
       {
-        "from": 15.0,
-        "to": 20.4,
+        "from": 15.6,
+        "to": 21.0,
         "key": "calls.n1.l05"
       },
       {
-        "from": 20.4,
+        "from": 21.0,
         "to": 27.0,
         "key": "calls.n1.l06"
       },
@@ -154,14 +155,5 @@
     "unlocks": [
       "c001"
     ]
-  },
-  "contacts": {
-    "phoneGuy": {
-      "name": "calls.contact.phoneGuy",
-      "ringSec": 20,
-      "noAnswerSec": 2.5,
-      "answerNight": 5,
-      "answerAfterSec": 9
-    }
   }
 }

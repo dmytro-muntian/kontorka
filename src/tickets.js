@@ -191,6 +191,7 @@ export function update(dt) {
     if (left - dt > 0) { rebooting.set(cam, left - dt); continue; }
     rebooting.delete(cam);
     set('brokenCams', state.brokenCams.filter((c) => c !== cam));
+    emit('camera:rebooted', { cam });
     const tk = open().find((x) => x.type === 'camera' && x.cam === cam);
     if (tk) resolve(tk);
   }

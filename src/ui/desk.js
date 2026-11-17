@@ -150,7 +150,8 @@ function el(tag, className, parent) {
 }
 
 function renderClock(state) {
-  const face = clockFace(state.time, els.clockGlitch > 0);
+  const displayTime = els.clockBack > 0 ? Math.max(0, state.time - 60) : state.time;
+  const face = clockFace(displayTime, els.clockGlitch > 0);
   const key = face.chars.join('') + (face.colon ? ':' : '');
   if (key === shownText) return;
   shownText = key;
@@ -568,6 +569,9 @@ export function mount(rootEl, ctx) {
   els.monRight = el('div', 'mon', els.stage);
   els.monRight.id = 'monitor-right';
   els.sd = buildShutdown(t);
+  els.glitchSilhouette = el('div', 'glitch-silhouette', els.monLeft);
+  els.glitchSilhouette.hidden = true;
+  el('span', '', els.glitchSilhouette);
   layoutMonitors();
   if (typeof ResizeObserver !== 'undefined') {
     els.resizeObserver = new ResizeObserver(layoutMonitors);
@@ -580,6 +584,8 @@ export function mount(rootEl, ctx) {
   els.cells = clock.cells;
   els.colon = clock.colon;
   els.clockGlitch = 0;
+  els.clockBack = 0;
+  els.silhouetteTime = 0;
   buildFxAbove(els.stage);
   renderClock(state);
 
@@ -601,6 +607,7 @@ export function mount(rootEl, ctx) {
   els.startHint.textContent = t('ui.headphones');
   els.startBtn = el('button', 'start-btn', els.start);
   els.startBtn.type = 'button';
+  els.startBtn.dataset.noUiClick = 'true';
   els.startBtn.textContent = t('ui.startShift');
   els.startTitle.textContent = t('ui.title');
 
@@ -644,6 +651,11 @@ export function mount(rootEl, ctx) {
   offs = [
     on('tick', ({ dt }) => {
       if (els.clockGlitch > 0) els.clockGlitch = Math.max(0, els.clockGlitch - dt);
+      if (els.clockBack > 0) els.clockBack = Math.max(0, els.clockBack - dt);
+      if (els.silhouetteTime > 0) {
+        els.silhouetteTime = Math.max(0, els.silhouetteTime - dt);
+        els.glitchSilhouette.hidden = els.silhouetteTime <= 0;
+      }
       renderClock(state);
       updateTension(state);
       els.flickWin(dt, state.running);
@@ -655,10 +667,17 @@ export function mount(rootEl, ctx) {
       updateScare(dt, ctx);
     }),
     on('jumpscare', ({ enemyId }) => startScare(enemyId)),
-    on('glitch', ({ type }) => {
-      if (type !== 'clock333') return;
-      els.clockGlitch = CLOCK_GLITCH_SEC;
-      renderClock(state);
+    on('glitch', ({ type, durationSec }) => {
+      if (type === 'clock333') {
+        els.clockGlitch = durationSec ?? CLOCK_GLITCH_SEC;
+        renderClock(state);
+      } else if (type === 'clockBack') {
+        els.clockBack = durationSec ?? 2.4;
+        renderClock(state);
+      } else if (type === 'silhouette') {
+        els.silhouetteTime = durationSec ?? 0.45;
+        els.glitchSilhouette.hidden = false;
+      }
     }),
     on('camera:open', syncCam),
     on('camera:close', syncCam),
@@ -667,6 +686,9 @@ export function mount(rootEl, ctx) {
       resetScare();
       shownText = '';
       els.clockGlitch = 0;
+      els.clockBack = 0;
+      els.silhouetteTime = 0;
+      els.glitchSilhouette.hidden = true;
       renderClock(state);
       syncCam();
       els.start.hidden = true;

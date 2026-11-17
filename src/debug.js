@@ -350,17 +350,28 @@ function buildMr404(el) {
 }
 
 function buildGlitches(el) {
-  // Фантомы Teams идут через glitches.js (звук и время показа берутся из nights.json).
+  // Все эффекты вызываются через glitches.js, включая часы 3:33.
   const phantom = (action, variant) => emit('debug:glitch', { action, variant });
+  const effect = (action) => emit('debug:glitch', { action });
   el.append(
     h('div', { class: 'dbg-btns' },
-      button('debug.glitch.clock333', () => emit('glitch', { type: 'clock333', source: 'fifth' }))),
+      button('debug.glitch.clock333', () => effect('clock333'))),
     h('div', { class: 'dbg-btns' },
       button('debug.glitch.phantomTyping', () => phantom('typing')),
       button('debug.glitch.phantomNotify', () => phantom('notify'))),
     h('div', { class: 'dbg-btns' },
       button('debug.glitch.chainNotify', () => phantom('chain', 'notifyFirst')),
       button('debug.glitch.chainTyping', () => phantom('chain', 'typingFirst'))),
+    h('div', { class: 'dbg-btns' },
+      button('debug.glitch.silhouette', () => effect('silhouette')),
+      button('debug.glitch.cursorSwitch', () => effect('cursorSwitch')),
+      button('debug.glitch.clockBack', () => effect('clockBack'))),
+    h('div', { class: 'dbg-btns' },
+      button('debug.glitch.aiText', () => effect('aiText')),
+      button('debug.glitch.tokensDash', () => effect('tokensDash'))),
+    h('div', { class: 'dbg-btns' },
+      button('debug.glitch.unknownCall', () => effect('unknownCall')),
+      button('debug.glitch.camera12', () => effect('camera12'))),
     h('p', { class: 'dbg-info' }, t('debug.glitch.hint')));
 }
 

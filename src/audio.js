@@ -8,7 +8,7 @@ let master = null;
 const catalog = {};     // id -> { file, kind, loop, volume }
 const buffers = {};     // id -> AudioBuffer
 let ambient = [];       // [{ id, handle }]
-let loading = Promise.resolve();
+const soundLoads = new Map(); // id -> Promise<AudioBuffer | null>
 
 // Вызывать только из обработчика касания.
 export function init() {
@@ -72,26 +72,43 @@ export function loadCatalog(list) {
 // Загрузка и декодирование MP3. Начинается после первого касания (нужен ctx).
 // Каждый звук грузится один раз; звуки, добавленные в каталог позже, докачиваются.
 const failed = [];
-const started = new Set();
-function decodeAll() {
-  if (!ctx) return loading;
-  const todo = Object.values(catalog).filter((s) => s.file && !started.has(s.id));
-  todo.forEach((s) => started.add(s.id));
-  const batch = Promise.all(todo.map(async (s) => {
+const MAX_PARALLEL_LOADS = 4;
+
+function loadSound(def) {
+  if (buffers[def.id]) return Promise.resolve(buffers[def.id]);
+  if (soundLoads.has(def.id)) return soundLoads.get(def.id);
+  const pending = (async () => {
     try {
-      const res = await fetch(new URL(s.file, document.baseURI), { cache: 'no-cache' });
+      const res = await fetch(new URL(def.file, document.baseURI));
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      buffers[s.id] = await ctx.decodeAudioData(await res.arrayBuffer());
+      const buffer = await ctx.decodeAudioData(await res.arrayBuffer());
+      buffers[def.id] = buffer;
+      const i = failed.indexOf(def.id);
+      if (i !== -1) failed.splice(i, 1);
+      return buffer;
     } catch (e) {
-      failed.push(s.id);
-      console.error(`audio: не загрузился звук «${s.id}» (${s.file})`, e);
+      if (!failed.includes(def.id)) failed.push(def.id);
+      console.error(`audio: не загрузился звук «${def.id}» (${def.file})`, e);
+      return null;
+    } finally {
+      soundLoads.delete(def.id);
     }
-  })).then(() => {
+  })();
+  soundLoads.set(def.id, pending);
+  return pending;
+}
+
+function decodeAll() {
+  if (!ctx) return Promise.resolve();
+  const todo = Object.values(catalog).filter((s) => s.file && !buffers[s.id]);
+  let next = 0;
+  const workers = Array.from({ length: Math.min(MAX_PARALLEL_LOADS, todo.length) }, async () => {
+    while (next < todo.length) await loadSound(todo[next++]);
+  });
+  return Promise.all(workers).then(() => {
     console.info(`audio: загружено ${Object.keys(buffers).length} из ${Object.keys(catalog).length}`
       + (failed.length ? `, НЕ загрузились: ${failed.join(', ')}` : ''));
   });
-  loading = Promise.all([loading, batch]);
-  return loading;
 }
 
 const stopped = new WeakSet();
@@ -99,11 +116,6 @@ const stopped = new WeakSet();
 // play(soundId, { at, loop, volume }) -> handle { stop() } | null.
 // at: позиция графа; без at звук играет «в голове» игрока.
 export function play(soundId, opts = {}) {
-  // Скример: свой MP3 из каталога; синтез только как запасной вариант, если файл не загрузился.
-  if (soundId === 'jumpscare' && !buffers.jumpscare) {
-    console.error('audio: jumpscare.mp3 не загружен, играет запасной синтез');
-    return playJumpscare();
-  }
   ensureSynth(soundId);
   const def = catalog[soundId];
   if (!def) {
@@ -119,9 +131,16 @@ export function play(soundId, opts = {}) {
   handle._def = def;
   const buf = buffers[soundId];
   if (!buf) {
-    // ещё декодируется: стартуем, когда будет готово (петли и недавние звуки не теряются)
-    (loading || Promise.resolve()).then(() => {
-      if (!stopped.has(handle) && buffers[soundId]) startHandle(handle, buffers[soundId]);
+    // Загрузка может завершиться ошибкой; повторяем её по запросу и используем синтез, если он доступен.
+    loadSound(def).then((loaded) => {
+      if (stopped.has(handle)) return;
+      const fallback = loaded ? null : createSynthBuffer(soundId);
+      if (loaded || fallback) startHandle(handle, loaded || fallback);
+      else if (soundId === 'jumpscare') {
+        console.error('audio: jumpscare.mp3 не загрузился, играет запасной синтез');
+        const synth = playJumpscare();
+        handle._src = { stop: () => synth?.stop() };
+      }
     });
     return handle;
   }
@@ -217,16 +236,29 @@ export function setAmbient(list) {
 // добавь запись с тем же id в data/sounds.json: каталог важнее заглушки.
 const SYNTH = {
   teams_call: { volume: 0.5, make: makeRingtone },      // входящий звонок Teams (заглушка; свой teams_call.mp3 в sounds.json важнее)
-  call_ringback: { volume: 0.55, make: makeRingback },  // гудки исходящего звонка
-  call_pickup: { volume: 0.7, make: makePickup },       // «трубку взяли»
-  call_hangup: { volume: 0.6, make: makeHangup },       // «трубку положили»
+  call_pickup: { volume: 0.9, make: makePickup },       // «трубку взяли»
+  call_hangup: { volume: 0.85, make: makeHangup },      // «трубку положили»
+  ticket_missed: { volume: 0.65, make: makeTicketMissed },
+  cam_reboot: { volume: 0.55, make: makeCamReboot },
+  tokens_zero: { volume: 0.75, make: makeTokensZero },
+  power_out: { volume: 0.45, make: makePowerOut },
   whistle_mr404: { volume: 0.5, make: makeWhistle },
   laugh_mr404: { volume: 0.8, make: makeLaugh },
   warning_attack: { volume: 0.9, make: makeWarning },
 };
 
 function ensureSynth(id) {
-  if (catalog[id] || !SYNTH[id] || !ctx) return;
+  if (catalog[id]) return;
+  const buf = createSynthBuffer(id);
+  if (!buf) return;
+  buffers[id] = buf;
+  catalog[id] = { id, file: null, kind: 'world', loop: false, volume: SYNTH[id].volume };
+}
+
+function createSynthBuffer(id) {
+  if (!SYNTH[id] || !ctx) return null;
+  const key = `synth:${id}`;
+  if (buffers[key]) return buffers[key];
   const sr = ctx.sampleRate;
   const data = SYNTH[id].make(sr);
   let peak = 0;
@@ -234,9 +266,8 @@ function ensureSynth(id) {
   const buf = ctx.createBuffer(1, data.length, sr);
   const ch = buf.getChannelData(0);
   for (let i = 0; i < data.length; i++) ch[i] = data[i] / (peak || 1) * 0.8;
-  buffers[id] = buf;
-  catalog[id] = { id, file: null, kind: 'world', loop: false, volume: SYNTH[id].volume };
-  started.add(id);
+  buffers[key] = buf;
+  return buf;
 }
 
 // Посвист: два наклонных тона с вибрато и лёгким шумом дыхания.
@@ -315,18 +346,55 @@ function tone(out, sr, from, dur, freqs, amp = 1) {
     out[a + i] += v / freqs.length * env * amp;
   }
 }
+
+function makeTicketMissed(sr) {
+  const out = new Float32Array(Math.floor(sr * 0.85));
+  tone(out, sr, 0.02, 0.22, [740, 587], 0.45);
+  tone(out, sr, 0.3, 0.38, [587, 440], 0.4);
+  return out;
+}
+
+function makeCamReboot(sr) {
+  const out = new Float32Array(Math.floor(sr * 0.9));
+  tone(out, sr, 0.02, 0.15, [330], 0.3);
+  tone(out, sr, 0.22, 0.22, [494], 0.35);
+  tone(out, sr, 0.5, 0.3, [659, 988], 0.4);
+  return out;
+}
+
+function makeTokensZero(sr) {
+  const dur = 0.9;
+  const out = new Float32Array(Math.floor(sr * dur));
+  for (let i = 0; i < out.length; i++) {
+    const t = i / sr;
+    const f = 150 - 100 * t / dur;
+    const env = Math.exp(-t * 4);
+    out[i] = (Math.sin(2 * Math.PI * f * t) + 0.25 * Math.sin(2 * Math.PI * f * 0.5 * t)) * env;
+  }
+  return out;
+}
+
+function makePowerOut(sr) {
+  const dur = 12.5;
+  const out = new Float32Array(Math.floor(sr * dur));
+  let phase = 0;
+  for (let i = 0; i < out.length; i++) {
+    const t = i / sr;
+    const fade = Math.max(0, 1 - t / dur);
+    const flicker = 0.55 + 0.45 * Math.max(0, Math.sin(2 * Math.PI * (1.4 + t * 0.15) * t));
+    phase += 2 * Math.PI * (48 + 4 * Math.sin(2 * Math.PI * 0.3 * t)) / sr;
+    const crackle = Math.random() < 0.0007 ? (Math.random() * 2 - 1) * 0.7 : 0;
+    out[i] = (0.65 * Math.sin(phase) + 0.25 * Math.sin(phase * 1.5) + crackle) * flicker * fade;
+  }
+  return out;
+}
+
 // Рингтон Teams: две трели по четыре двойных тона, потом пауза.
 function makeRingtone(sr) {
   const out = new Float32Array(Math.floor(sr * 2.4));
   for (let r = 0; r < 2; r++) {
     for (let k = 0; k < 4; k++) tone(out, sr, r * 0.9 + k * 0.1, 0.07, [880, 1320]);
   }
-  return out;
-}
-// Гудки: 425 Гц, 1 с звук и 3 с тишины (петля).
-function makeRingback(sr) {
-  const out = new Float32Array(Math.floor(sr * 4));
-  tone(out, sr, 0, 1.0, [425]);
   return out;
 }
 function makePickup(sr) {
@@ -347,13 +415,21 @@ const callDefs = {};
 export function loadCalls(map) {
   Object.assign(callDefs, map);
 }
-// playCall(callId) -> handle { stop(), duration } | null. Субтитры шлёт calls.js (время только из tick).
-// Нет файла или он ещё грузится: звонок идёт без звука, handle.duration появится после загрузки.
+// playCall(callId) -> handle { stop(), duration, failed, getTime() } | null.
+// getTime() отсчитывается от фактического старта аудио, а не от нажатия «Принять».
 export function playCall(callId) {
   const def = callDefs[callId];
   if (!def?.audio || !ctx) return null;
   if (ctx.state !== 'running') ctx.resume();
-  const handle = { duration: null, _stopped: false, _src: null, stop() { this._stopped = true; try { this._src?.stop(); } catch (e) { /* уже остановлен */ } } };
+  const handle = {
+    duration: null,
+    failed: false,
+    startedAt: null,
+    _stopped: false,
+    _src: null,
+    getTime() { return this.startedAt === null ? null : Math.max(0, ctx.currentTime - this.startedAt); },
+    stop() { this._stopped = true; try { this._src?.stop(); } catch (e) { /* уже остановлен */ } },
+  };
   (async () => {
     try {
       if (!buffers[`call:${callId}`]) {
@@ -370,9 +446,11 @@ export function playCall(callId) {
       g.gain.value = def.volume ?? 1;
       src.connect(g);
       g.connect(master);
+      handle.startedAt = ctx.currentTime;
       src.start(0);
       handle._src = src;
     } catch (e) {
+      handle.failed = true;
       console.warn(`audio.playCall: запись «${def.audio}» не загрузилась, звонок идёт без звука`, e);
     }
   })();

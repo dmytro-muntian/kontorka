@@ -26,6 +26,9 @@ let repairSig = '';    // что сейчас нарисовано в слое �
 let repairBtns = new Map();   // id тикета -> { btn, fill }
 let shown = null;      // номер камеры на экране или null (карта)
 let noiseTimer = null;
+let aiTextTtl = 0;
+let tokensDashTtl = 0;
+let camera12Ttl = 0;
 let preload = [];
 let last = {};         // последние тексты HUD, чтобы не трогать DOM зря
 let gains = {};        // автояркость по камерам (из средней яркости кадра)
@@ -107,6 +110,7 @@ function buildMap(parent, ctx) {
     if (!meta.btn) continue;
     const btn = el('button', 'cam-btn', map);
     btn.type = 'button';
+    btn.dataset.actionSound = 'camera';
     btn.style.left = `${meta.btn.x}px`;
     btn.style.top = `${meta.btn.y}px`;
     el('small', '', btn).textContent = T('cams.map.cam');
@@ -115,6 +119,16 @@ function buildMap(parent, ctx) {
     onPress(btn, () => emit('intent:openCamera', { id: cam }));
     els.buttons[cam] = btn;
   }
+
+  els.camera12 = el('button', 'cam-btn cam-btn--phantom', map);
+  els.camera12.type = 'button';
+  els.camera12.tabIndex = -1;
+  els.camera12.setAttribute('aria-hidden', 'true');
+  els.camera12.hidden = true;
+  els.camera12.style.left = `${W - 55}px`;
+  els.camera12.style.top = `${H - 45}px`;
+  el('small', '', els.camera12).textContent = T('cams.map.cam');
+  el('span', '', els.camera12).textContent = '12';
 
   els.caption = el('div', 'cam-caption', map);
   return map;
@@ -147,6 +161,9 @@ function buildView(parent, ctx) {
 
   el('div', 'cam-roll', els.frame);
   el('div', 'cam-scan', els.frame);
+  els.glitchText = el('div', 'cam-glitch-text', els.frame);
+  els.glitchText.textContent = T('glitch.aiText');
+  els.glitchText.hidden = true;
 
   // Сломанная камера
   els.error = el('div', 'cam-error', els.frame);
@@ -182,6 +199,7 @@ function buildView(parent, ctx) {
   els.callAt = el('div', 'cam-call-at', els.frame);   // куда звонит агент (комната открытой камеры)
   els.call = el('button', 'cam-call', els.frame);
   els.call.type = 'button';
+  els.call.dataset.actionSound = 'lure';
   onPress(els.call, () => {
     if (!els.call.disabled) emit('intent:call');
   });
@@ -194,6 +212,7 @@ function buildView(parent, ctx) {
     const meta = cameraMeta(cam);
     const btn = el('button', 'cam-sbtn', grid);
     btn.type = 'button';
+    btn.dataset.actionSound = 'camera';
     el('small', '', btn).textContent = T('cams.map.cam');
     el('span', '', btn).textContent = String(cam);
     btn.setAttribute('aria-label', T('cams.caption', { n: cam, name: T(meta.name) }));
@@ -256,7 +275,9 @@ function setText(key, node, text) {
 function syncHud() {
   const hour = Math.min(6, Math.floor(S.time / 60));
   setText('time', els.hudTime, T('cams.hud.time', { h: hour === 0 ? 12 : hour }));
-  setText('tokens', els.hudTokens, T('cams.hud.tokens', { v: Math.ceil(S.tokens) }));
+  setText('tokens', els.hudTokens, tokensDashTtl > 0
+    ? T('cams.hud.tokens', { v: '—' })
+    : T('cams.hud.tokens', { v: Math.ceil(S.tokens) }));
   const over = S.load >= LOAD_OVERLOAD;
   setText('load', els.hudLoadLabel, over ? T('cams.hud.overload') : T('cams.hud.load'));
   els.hudLoadLabel.classList.toggle('is-over', over);
@@ -606,6 +627,16 @@ export function mount(rootEl, ctx) {
       hideView();
     }
   };
+  const resetGlitches = () => {
+    aiTextTtl = 0;
+    tokensDashTtl = 0;
+    camera12Ttl = 0;
+    els.glitchText.hidden = true;
+    els.camera12.hidden = true;
+    last.tokens = '';
+    refresh();
+    if (shown !== null) syncHud();
+  };
   refresh();
 
   // Подсветка позиции из отладочной панели
@@ -621,7 +652,7 @@ export function mount(rootEl, ctx) {
   offs = [
     on('camera:open', refresh),
     on('camera:close', refresh),
-    on('night:start', refresh),
+    on('night:start', resetGlitches),
     on('debug:highlight', highlight),
     on('debug:flash', () => { if (shown !== null) flash(); }),
     on('debug:sprite', ({ pos, cam, x, y, scale, pose, light, edge }) => {
@@ -632,8 +663,34 @@ export function mount(rootEl, ctx) {
       tunes[cam] = { brightness, contrast };
       if (shown === cam) applyLook(cam);
     }),
+    on('glitch', ({ type, durationSec }) => {
+      if (type === 'aiText') {
+        aiTextTtl = durationSec ?? 0.12;
+        els.glitchText.hidden = false;
+      } else if (type === 'tokensDash') {
+        tokensDashTtl = durationSec ?? 0.8;
+        last.tokens = '';
+        syncHud();
+      } else if (type === 'camera12') {
+        camera12Ttl = durationSec ?? 1;
+        els.camera12.hidden = false;
+      }
+    }),
     // Поломка камеры и HUD читаются из state раз в кадр; своих игровых таймеров нет.
-    on('tick', () => {
+    on('tick', ({ dt }) => {
+      if (aiTextTtl > 0) {
+        aiTextTtl = Math.max(0, aiTextTtl - dt);
+        els.glitchText.hidden = aiTextTtl <= 0;
+      }
+      if (tokensDashTtl > 0) {
+        const wasVisible = tokensDashTtl > 0;
+        tokensDashTtl = Math.max(0, tokensDashTtl - dt);
+        if (wasVisible && tokensDashTtl === 0) last.tokens = '';
+      }
+      if (camera12Ttl > 0) {
+        camera12Ttl = Math.max(0, camera12Ttl - dt);
+        els.camera12.hidden = camera12Ttl <= 0;
+      }
       if (shown === null) return;
       syncHud();
       renderSprites();
@@ -652,6 +709,9 @@ export function unmount() {
   offs.forEach((off) => off());
   offs = [];
   preload = [];
+  aiTextTtl = 0;
+  tokensDashTtl = 0;
+  camera12Ttl = 0;
   if (root) root.replaceChildren();
   root = null;
   els = {};

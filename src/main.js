@@ -17,7 +17,6 @@ const ENEMY_MODULES = { mr404 };   // id врага из nights.json -> моду
 
 const MAX_DT = 0.1; // секунды
 const NIGHT_SEC = 360;
-const CLOCK_333_SEC = 3 * 60 + 33;   // ночь 5: ровно в 3:33 на часах Sony появляются минуты
 
 let last = null;
 let lastHour = 0;
@@ -50,11 +49,6 @@ on('tick', ({ dt }) => {
   const prev = state.time;
   const time = Math.min(NIGHT_SEC, prev + dt);
   set('time', time);
-
-  // ВРЕМЕННО здесь, позже уйдёт в данные ночей и модуль глюков (этап 9)
-  if (state.night === 5 && prev < CLOCK_333_SEC && time >= CLOCK_333_SEC) {
-    emit('glitch', { type: 'clock333', source: 'fifth' });
-  }
 
   const hour = Math.floor(time / 60);
   if (hour !== lastHour) {
@@ -249,7 +243,7 @@ on('tick', ({ dt }) => {
 });
 
 // ---------- глюки (этап 9) ----------
-// Фантомы Teams (глюки пятого): условия и порядок решает glitches.js, рисует teams.js.
+// Условия и расписание решает glitches.js; UI-модули только показывают события.
 const glitchMod = glitches.create({ state, emit, on, rng: Math.random });
 on('night:start', () => glitchMod.start(nights[state.night] ?? {}));
 on('tick', () => { if (state.running) glitchMod.update(); });
@@ -285,7 +279,19 @@ on('ticket:new', ({ id }) => {
 on('ticket:resolved', ({ id }) => { audio.stop(printerSnds.get(id)); printerSnds.delete(id); });
 // Конец смены без провала: куранты.
 on('night:end', ({ failed }) => { if (!failed) audio.play('night_end_chime'); });
+let shutdownSndPlayed = false;
+on('night:start', () => {
+  shutdownSndPlayed = false;
+});
+on('tokens:change', ({ value }) => {
+  if (value > 0 || !state.running || shutdownSndPlayed) return;
+  shutdownSndPlayed = true;
+  audio.play('tokens_zero');
+  audio.play('power_out');
+});
 on('ticket:new', () => audio.play('teams_ping'));
+on('ticket:missed', () => audio.play('ticket_missed'));
+on('camera:rebooted', () => audio.play('cam_reboot'));
 on('ticket:resolved', () => { stopHoldSound(); audio.play('repair_done'); });
 // Сообщение-давление: сначала слышна клавиатура на позиции устройства тикета, пока «печатает…», потом звук Teams.
 on('ticket:pressure', ({ id, key }) => {
@@ -296,6 +302,11 @@ on('ticket:pressure', ({ id, key }) => {
   setTimeout(() => { audio.stop(kb); if (state.running) audio.play('teams_pressure'); }, sec * 1000);
 });
 on('glitch', ({ source }) => { if (source === 'ai') audio.play('glitch_ai'); });
+on('glitch', ({ type, target }) => {
+  if (type === 'cursorSwitch' && Number.isInteger(target) && target >= 1 && target <= 11) {
+    emit('intent:openCamera', { id: target });
+  }
+});
 // Фон: гул и ночь всегда; напряжение при перегрузке сети и во время предупреждения об атаке; темнота с ночи 4.
 let overloaded = false;
 let warning = false;
@@ -326,7 +337,9 @@ on('tick', () => {
 
 // Щелчок интерфейса на любой кнопке.
 document.addEventListener('pointerdown', (e) => {
-  if (e.target.closest?.('button') && !e.target.closest?.('.dbg-panel, .dbg-toggle')) audio.play('ui_click');
+  const button = e.target.closest?.('button');
+  if (button && !button.dataset.actionSound && button.dataset.noUiClick !== 'true'
+    && !e.target.closest?.('.dbg-panel, .dbg-toggle')) audio.play('ui_click');
 });
 
 on('night:end', () => {
