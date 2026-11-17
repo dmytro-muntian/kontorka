@@ -1,7 +1,6 @@
 {
   "ui.title": "Das Büro",
   "ui.startShift": "Schicht beginnen",
-  "ui.headphones": "Am besten mit Kopfhörern spielen",
   "ui.fullscreen": "Vollbild",
   "ui.addToHome": "Ohne Browserleisten spielen: „Teilen“ → „Zum Home-Bildschirm“, dann vom Startbildschirm öffnen",
   "ui.rotateHint": "Bitte das Gerät ins Querformat drehen",
@@ -139,5 +138,19 @@
   "minigame.n5.q2b": "Evakuieren und Hilfe rufen.",
   "minigame.n5.q3": "Gefundene Protokolle belegen, dass das System Beschäftigte im Netzwerk festgehalten hat.",
   "minigame.n5.q3a": "Protokolle verbergen, um dem Unternehmen nicht zu schaden.",
-  "minigame.n5.q3b": "Beweise an unabhängige Stellen übergeben."
+  "minigame.n5.q3b": "Beweise an unabhängige Stellen übergeben.",
+  "disclaimer.title": "Warnung",
+  "disclaimer.risksHead": "Risiken",
+  "disclaimer.risk.scare": "Dies ist ein Horrorspiel: plötzliche Schockmomente, laute Geräusche und eine beklemmende Atmosphäre.",
+  "disclaimer.risk.flash": "Das Spiel enthält flackerndes Licht, Bildstörungen und Lichtblitze. Sie können bei Menschen mit photosensibler Epilepsie Anfälle auslösen.",
+  "disclaimer.risk.health": "Wenn du dich leicht erschreckst oder Herzprobleme hast, überlege dir, ob du spielen möchtest. Mach bei Unwohlsein eine Pause.",
+  "disclaimer.risk.fiction": "Alle Figuren und Ereignisse sind frei erfunden.",
+  "disclaimer.tipsHead": "So spielst du am besten",
+  "disclaimer.tip.headphones": "Spiele mit Kopfhörern: Der Ton ist die wichtigste Informationsquelle (Schritte, Klopfen, Anrufe).",
+  "disclaimer.tip.fullscreen": "Aktiviere den Vollbildmodus, so wirkt das Spiel wie gedacht.",
+  "disclaimer.tip.rotate": "Halte das Smartphone im Querformat.",
+  "disclaimer.tip.ios": "Auf dem iPhone: „Teilen“ → „Zum Home-Bildschirm“, dann öffnet sich das Spiel ohne Browserleisten.",
+  "disclaimer.note": "Mit „OK“ bestätigst du, dass du die Warnung gelesen hast, und schaltest den Spielton ein.",
+  "disclaimer.ok": "OK",
+  "disclaimer.fullscreen": "Vollbild"
 }

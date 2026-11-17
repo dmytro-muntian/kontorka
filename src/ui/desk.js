@@ -63,6 +63,476 @@ function layoutMonitors() {
   }
 }
 
+// ---------- главное меню: живой фон ----------
+// Всё считается в координатах арта menu_background.jpeg (1376x768). Контейнер .menu-art
+// масштабируется как object-fit: cover, поэтому слои не расходятся с картинкой.
+// Если арт заменят, правятся только числа в MENU_ART.
+const MENU_ART = {
+  w: 1376, h: 768,
+  // стекло ЭЛТ-монитора на арте: левый верх, правый верх, правый низ, левый низ (px арта)
+  quad: [[1019.5, 422.5], [1247, 418.5], [1241.5, 611], [1015.5, 601]],
+  glow: [1130, 512],   // центр свечения монитора
+  embers: { right: [800, 200, 1376, 720], any: [250, 300, 1376, 740] },   // зоны искр: x0, y0, x1, y1
+};
+const MENU_TEX = [288, 240];     // «плоский» экран монитора (px холста), перспективу даёт matrix3d
+const MENU_STATIC_W = 240;       // ширина зернистого холста статики на весь экран
+const MENU_SMOKE = [240, 135];   // разрешение холста дыма (растягивается на весь арт)
+
+const mfxStep = (a, b, x) => { const k = Math.min(1, Math.max(0, (x - a) / (b - a))); return k * k * (3 - 2 * k); };
+
+// --- шум для дыма (value noise на тайле 128x128, бесшовный) ---
+function mfxNoiseTile() {
+  const a = new Float32Array(128 * 128);
+  for (let i = 0; i < a.length; i++) a[i] = Math.random();
+  return a;
+}
+function mfxNoise(a, x, y) {
+  const xi = Math.floor(x), yi = Math.floor(y);
+  let fx = x - xi, fy = y - yi;
+  fx = fx * fx * (3 - 2 * fx); fy = fy * fy * (3 - 2 * fy);
+  const x0 = xi & 127, x1 = (xi + 1) & 127, y0 = (yi & 127) << 7, y1 = ((yi + 1) & 127) << 7;
+  const v00 = a[y0 + x0], v10 = a[y0 + x1], v01 = a[y1 + x0], v11 = a[y1 + x1];
+  return v00 + (v10 - v00) * fx + (v01 - v00) * fy + (v00 - v10 - v01 + v11) * fx * fy;
+}
+function mfxFbm(a, x, y) {
+  return 0.5 * mfxNoise(a, x, y) + 0.27 * mfxNoise(a, x * 2.03 + 5.2, y * 2.03 + 1.3)
+    + 0.15 * mfxNoise(a, x * 4.1 + 9.7, y * 4.1 + 3.1) + 0.08 * mfxNoise(a, x * 8.3 + 2.4, y * 8.3 + 7.7);
+}
+
+// --- дым: два слоя шума с искажением координат, плывёт вправо и вверх, подсвечен монитором ---
+function mfxDrawSmoke(fx, ts) {
+  const s = fx.smoke;
+  const { w, h, tile } = s;
+  const d = s.img.data;
+  const t = ts / 1000;
+  const mx = MENU_ART.glow[0] / MENU_ART.w * w, my = MENU_ART.glow[1] / MENU_ART.h * h;
+  const y0 = Math.floor(h * 0.3);   // выше дыма нет, эти строки остаются прозрачными
+  for (let y = y0; y < h; y++) {
+    const vm = mfxStep(0.32, 0.85, y / h);
+    for (let x = 0; x < w; x++) {
+      const i = (y * w + x) * 4;
+      const wx = mfxFbm(tile, x * 0.018 - t * 0.012 + 3.1, y * 0.03 + t * 0.01);
+      const n = mfxFbm(tile, x * 0.026 - t * 0.03 + wx * 1.1, y * 0.04 + t * 0.018 + wx * 0.9 + 11.5);
+      let a = mfxStep(0.4, 0.74, n) * vm;
+      a *= 0.5 + 0.5 * mfxStep(0, 0.45, x / w);   // слева, под текстом меню, дым реже
+      const dx = (x - mx) / 45, dy = (y - my) / 28;
+      const gl = Math.exp(-(dx * dx + dy * dy) / 2);   // свет монитора на дыме
+      a *= 0.62 + 0.5 * gl;
+      d[i] = 168 + gl * 22; d[i + 1] = 198 + gl * 57; d[i + 2] = 186 + gl * 39;
+      d[i + 3] = Math.min(255, a * 255 * 0.62);
+    }
+  }
+  s.cx.putImageData(s.img, 0, 0);
+}
+
+// --- искры и пылинки ---
+function mfxGlowSprite(stops) {
+  const [c, cx] = makeCanvas(64, 64);
+  const g = cx.createRadialGradient(32, 32, 0, 32, 32, 32);
+  for (const [o, col] of stops) g.addColorStop(o, col);
+  cx.fillStyle = g; cx.fillRect(0, 0, 64, 64);
+  return c;
+}
+function mfxSpawn(p, initial) {
+  const zone = p.dust ? MENU_ART.embers.any : (Math.random() < 0.7 ? MENU_ART.embers.right : MENU_ART.embers.any);
+  p.x = rand(zone[0], zone[2]); p.y = rand(zone[1], zone[3]);
+  p.d = p.dust ? rand(2.5, 6) : rand(7, 16);      // диаметр свечения (px арта)
+  p.vx = rand(-3, 6); p.vy = -rand(p.dust ? 2 : 5, p.dust ? 7 : 16);
+  p.life = rand(7, 16); p.age = initial ? rand(0, p.life) : 0;
+  p.tw = rand(0, 6.28); p.twS = rand(1.2, 4); p.ph = rand(0, 6.28);
+  p.sway = rand(5, 16); p.swayF = rand(0.3, 0.9);
+  p.peak = p.dust ? rand(0.12, 0.3) : rand(0.4, 0.95);
+  p.flare = 0;
+}
+function mfxInitEmbers(fx) {
+  fx.sprites = {
+    ember: mfxGlowSprite([[0, 'rgba(255,205,185,1)'], [0.12, 'rgba(255,90,70,0.95)'], [0.35, 'rgba(220,30,30,0.35)'], [1, 'rgba(160,0,0,0)']]),
+    dust: mfxGlowSprite([[0, 'rgba(215,255,238,0.9)'], [0.3, 'rgba(170,230,205,0.3)'], [1, 'rgba(150,210,190,0)']]),
+  };
+  fx.embers = [];
+  for (let i = 0; i < 48; i++) {
+    const p = { dust: i >= 34 };
+    mfxSpawn(p, true);
+    fx.embers.push(p);
+  }
+}
+function mfxDrawEmbers(fx, dt, ts) {
+  const cx = fx.embCtx, sc = els.menuScale;
+  if (!cx || !sc) return;
+  cx.clearRect(0, 0, sc.W, sc.H);
+  cx.globalCompositeOperation = 'lighter';
+  const t = ts / 1000;
+  for (const p of fx.embers) {
+    if (dt > 0) {
+      p.age += dt;
+      if (p.age > p.life) mfxSpawn(p, false);
+      p.x += (p.vx + Math.sin(t * p.swayF + p.ph) * p.sway) * dt;
+      p.y += p.vy * dt;
+      p.tw += p.twS * dt;
+      p.flare = Math.max(0, p.flare - dt * 1.4);
+      if (!p.dust && Math.random() < dt * 0.15) p.flare = 0.35;   // редкая яркая вспышка
+    }
+    const fade = Math.min(1, p.age / 1.2, (p.life - p.age) / 1.8);
+    const a = Math.min(1, p.peak * fade * (0.6 + 0.4 * Math.sin(p.tw) + p.flare));
+    if (a < 0.02) continue;
+    const D = p.d * sc.s * (p.dust ? 1 : 1 + p.flare * 0.5);
+    cx.globalAlpha = a;
+    cx.drawImage(p.dust ? fx.sprites.dust : fx.sprites.ember, sc.ox + p.x * sc.s - D / 2, sc.oy + p.y * sc.s - D / 2, D, D);
+  }
+  cx.globalAlpha = 1;
+  cx.globalCompositeOperation = 'source-over';
+}
+
+// --- помехи на мониторе ---
+// Текстура: пиксели стекла прямо с фото, выпрямленные той же гомографией, что и CSS matrix3d.
+// В покое кадр совпадает с оригиналом, в движении рвётся теми же кусками.
+function mfxBuildTex(fx, img) {
+  const m = fx.mon;
+  const [W, H] = MENU_TEX;
+  try {
+    const q = MENU_ART.quad;
+    const bx0 = Math.floor(Math.min(...q.map((p) => p[0]))) - 3, by0 = Math.floor(Math.min(...q.map((p) => p[1]))) - 3;
+    const bw = Math.ceil(Math.max(...q.map((p) => p[0]))) + 3 - bx0, bh = Math.ceil(Math.max(...q.map((p) => p[1]))) + 3 - by0;
+    const [, sx] = makeCanvas(bw, bh);
+    sx.drawImage(img, bx0, by0, bw, bh, 0, 0, bw, bh);
+    const src = sx.getImageData(0, 0, bw, bh).data;
+    const mt = monitorMatrix(q, W, H, 1);
+    const [tc, tx] = makeCanvas(W, H);
+    const out = tx.createImageData(W, H);
+    const o = out.data;
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const px = x + 0.5, py = y + 0.5;
+        const wd = mt[3] * px + mt[7] * py + 1;
+        const X = Math.min(bw - 1.001, Math.max(0, (mt[0] * px + mt[4] * py + mt[12]) / wd - bx0 - 0.5));
+        const Y = Math.min(bh - 1.001, Math.max(0, (mt[1] * px + mt[5] * py + mt[13]) / wd - by0 - 0.5));
+        const x0 = X | 0, y0 = Y | 0, fx1 = X - x0, fy1 = Y - y0;
+        const i00 = (y0 * bw + x0) * 4, i10 = i00 + 4, i01 = i00 + bw * 4, i11 = i01 + 4;
+        const k = (y * W + x) * 4;
+        for (let c = 0; c < 3; c++) {
+          const top = src[i00 + c] + (src[i10 + c] - src[i00 + c]) * fx1;
+          const bot = src[i01 + c] + (src[i11 + c] - src[i01 + c]) * fx1;
+          o[k + c] = top + (bot - top) * fy1;
+        }
+        o[k + 3] = 255;
+      }
+    }
+    tx.putImageData(out, 0, 0);
+    m.tex = tc;
+    m.c.hidden = REDUCE;   // при «уменьшить движение» остаётся статичное фото
+  } catch (e) {
+    console.warn('menu: не удалось подготовить текстуру монитора (нужен запуск через сервер)', e);
+    m.tex = null;
+  }
+}
+
+function mfxMonitorMask(W, H) {
+  const [c, cx] = makeCanvas(W, H);
+  const img = cx.createImageData(W, H);
+  const r = 10, feather = 3.5;
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const px = Math.abs(x + 0.5 - W / 2) - (W / 2 - r), py = Math.abs(y + 0.5 - H / 2) - (H / 2 - r);
+      const dist = Math.hypot(Math.max(px, 0), Math.max(py, 0)) + Math.min(Math.max(px, py), 0) - r;
+      const k = (y * W + x) * 4;
+      img.data[k] = img.data[k + 1] = img.data[k + 2] = 255;
+      img.data[k + 3] = 255 * Math.min(1, Math.max(0, (-dist - 1.5) / feather));
+    }
+  }
+  cx.putImageData(img, 0, 0);
+  return c;
+}
+
+function mfxMonitorLines(W, H) {
+  const [c, cx] = makeCanvas(W, H);
+  cx.fillStyle = 'rgba(0,0,0,0.26)';
+  for (let y = 0; y < H; y += 3) cx.fillRect(0, y, W, 1);
+  const v = cx.createRadialGradient(W / 2, H / 2, H * 0.28, W / 2, H / 2, H * 0.82);
+  v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(1, 'rgba(0,0,0,0.4)');
+  cx.fillStyle = v; cx.fillRect(0, 0, W, H);
+  const g = cx.createLinearGradient(0, 0, W * 0.6, H * 0.5);
+  g.addColorStop(0, 'rgba(255,255,255,0.07)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+  cx.fillStyle = g; cx.fillRect(0, 0, W, H);
+  return c;
+}
+
+function mfxInitMonitor(fx, art) {
+  const [W, H] = MENU_TEX;
+  const [c, cx] = makeCanvas(W, H);
+  c.className = 'menu-monitor-screen';
+  c.hidden = true;
+  c.style.width = `${W}px`; c.style.height = `${H}px`;
+  c.style.transform = `matrix3d(${monitorMatrix(MENU_ART.quad, W, H, 1).join(',')})`;
+  art.appendChild(c);
+  const [nc, ncx] = makeCanvas(96, 80);
+  fx.mon = { c, cx, W, H, tex: null, mask: mfxMonitorMask(W, H), lines: mfxMonitorLines(W, H),
+    noise: nc, noiseCx: ncx, noiseImg: ncx.createImageData(96, 80), bands: [], slabs: [], roll: null, flick: 0 };
+}
+
+function mfxBand(W, H, burst) {
+  const r = Math.random();
+  const type = r < 0.45 ? 'shift' : r < 0.7 ? 'swap' : r < 0.88 ? 'smear' : 'ghost';
+  const h = type === 'smear' ? rand(6, 34) : rand(3, 28);
+  const big = Math.random() < 0.3;
+  return {
+    type, h, y: rand(0, H - h), sy: rand(0, H - h), ghost: rand(3, 8) * (Math.random() < 0.5 ? -1 : 1),
+    off: (Math.random() < 0.5 ? -1 : 1) * (big ? rand(25, 90) : rand(3, 22)) * (burst ? 1.4 : 1),
+    ttl: rand(70, burst ? 260 : 480),
+  };
+}
+
+function mfxSlab(W, H, burst) {
+  const r = Math.random();
+  const kind = r < 0.5 ? 'bright' : r < 0.75 ? 'streak' : 'dark';
+  const s = { kind, ttl: rand(60, burst ? 220 : 300), dots: [] };
+  if (kind === 'bright') { s.w = rand(30, 120); s.h = rand(4, 14); s.color = '#e9fff6'; }
+  else if (kind === 'streak') { s.w = rand(40, 170); s.h = rand(1, 2.2); s.color = '#f2fff9'; }
+  else { s.w = rand(40, 150); s.h = rand(5, 18); s.color = '#040c0a'; }
+  s.x = rand(-10, W - s.w + 10);
+  s.y = rand(0, H - s.h);
+  if (kind !== 'streak') {
+    for (let i = 0; i < 9; i++) s.dots.push([Math.floor(rand(0, s.w - 2)), Math.floor(rand(0, s.h - 1))]);
+  }
+  return s;
+}
+
+function mfxTickMonitor(fx, dtMs, burst, type) {
+  const m = fx.mon;
+  if (!m.tex) return;
+  const { cx, W, H, tex } = m;
+  cx.globalCompositeOperation = 'source-over';
+  cx.globalAlpha = 1;
+
+  // вертикальный срыв кадров (roll)
+  let rollY = 0;
+  if (m.roll) {
+    m.roll.p += dtMs / m.roll.dur;
+    if (m.roll.p >= 1) m.roll = null;
+    else rollY = Math.round(m.roll.p * m.roll.p * H);
+  }
+  if (rollY) {
+    cx.drawImage(tex, 0, rollY);
+    cx.drawImage(tex, 0, rollY - H);
+    cx.fillStyle = 'rgba(0,0,0,0.85)';
+    cx.fillRect(0, rollY - 5, W, 10);
+  } else {
+    cx.drawImage(tex, 0, 0);
+  }
+
+  // горизонтальные разрывы кадра
+  m.bands = m.bands.filter((b) => (b.ttl -= dtMs) > 0);
+  const target = 5 + (burst ? 6 : 0) + (m.roll ? 3 : 0);
+  for (let k = 0; k < 2 && m.bands.length < target; k++) {
+    if (Math.random() < 0.55) m.bands.push(mfxBand(W, H, burst));
+  }
+  for (const b of m.bands) {
+    const y = Math.round(b.y), h = Math.max(1, Math.round(b.h)), wrap = b.off - Math.sign(b.off) * W;
+    if (b.type === 'smear') {
+      // одна строка растянута вниз: «залипшая» развёртка
+      const sy = Math.min(H - 1, Math.round(b.sy));
+      cx.drawImage(tex, 0, sy, W, 1, b.off, y, W, h);
+      cx.drawImage(tex, 0, sy, W, 1, wrap, y, W, h);
+    } else if (b.type === 'swap') {
+      const sy = Math.min(H - h, Math.round(b.sy));
+      cx.drawImage(tex, 0, sy, W, h, b.off, y, W, h);
+      cx.drawImage(tex, 0, sy, W, h, wrap, y, W, h);
+    } else {
+      cx.drawImage(tex, 0, y, W, h, b.off, y, W, h);
+      cx.drawImage(tex, 0, y, W, h, wrap, y, W, h);
+      if (b.type === 'ghost') {
+        cx.globalCompositeOperation = 'lighter'; cx.globalAlpha = 0.35;
+        cx.drawImage(tex, 0, y, W, h, b.off + b.ghost, y, W, h);
+        cx.globalCompositeOperation = 'source-over'; cx.globalAlpha = 1;
+      }
+    }
+  }
+
+  // яркие и тёмные блоки «битой» картинки
+  m.slabs = m.slabs.filter((s) => (s.ttl -= dtMs) > 0);
+  if (m.slabs.length < 6 && Math.random() < (burst ? 0.8 : 0.25)) m.slabs.push(mfxSlab(W, H, burst));
+  for (const s of m.slabs) {
+    cx.fillStyle = s.color;
+    cx.fillRect(Math.round(s.x), Math.round(s.y), Math.round(s.w), Math.max(1, Math.round(s.h)));
+    cx.fillStyle = s.kind === 'dark' ? '#5c8f7d' : '#0a1a15';
+    for (const [dx, dy] of s.dots) cx.fillRect(Math.round(s.x) + dx, Math.round(s.y) + dy, 2, 2);
+  }
+
+  // зерно
+  const nd = m.noiseImg.data;
+  for (let i = 0; i < nd.length; i += 4) {
+    const v = Math.random() * 255;
+    nd[i] = v * 0.7; nd[i + 1] = v; nd[i + 2] = v * 0.85; nd[i + 3] = 255;
+  }
+  m.noiseCx.putImageData(m.noiseImg, 0, 0);
+  cx.imageSmoothingEnabled = false;
+  cx.globalCompositeOperation = 'lighter';
+  cx.globalAlpha = burst ? 0.3 : 0.14;
+  cx.drawImage(m.noise, 0, 0, W, H);
+  cx.imageSmoothingEnabled = true;
+
+  // медленная светлая полоса развёртки
+  const by = ((fx.t / 1000) * 0.11 % 1.5 - 0.25) * H;
+  const g = cx.createLinearGradient(0, by - 22, 0, by + 22);
+  g.addColorStop(0, 'rgba(200,255,230,0)'); g.addColorStop(0.5, 'rgba(200,255,230,0.1)'); g.addColorStop(1, 'rgba(200,255,230,0)');
+  cx.globalAlpha = 1; cx.fillStyle = g; cx.fillRect(0, by - 22, W, 44);
+  cx.globalCompositeOperation = 'source-over';
+
+  // провал яркости, строки развёртки, виньетка, мягкий край стекла
+  m.flick = type === 'drop' && burst ? 0.88 : (Math.random() < 0.025 ? rand(0.12, 0.3) : 0);
+  if (m.flick) { cx.fillStyle = `rgba(0,0,0,${m.flick})`; cx.fillRect(0, 0, W, H); }
+  cx.drawImage(m.lines, 0, 0);
+  cx.globalCompositeOperation = 'destination-in';
+  cx.drawImage(m.mask, 0, 0);
+  cx.globalCompositeOperation = 'source-over';
+
+  if (els.menuGlow) els.menuGlow.style.opacity = String(Math.min(1, Math.max(0.15, 0.62 * (1 - m.flick * 0.9) + (burst ? 0.18 : 0))));
+}
+
+// --- статика на весь экран (в духе FNaF: зерно, строки помех, прокатывающаяся светлая полоса) ---
+function mfxDrawStatic(fx, burst) {
+  const s = fx.stat;
+  if (!s) return;
+  const { w, h, u32 } = s;
+  const base = fx.reduced ? 0.035 : 0.05 + (burst ? 0.04 : 0);   // спокойное зерно, всплеск едва заметен
+  let i = 0;
+  for (let y = 0; y < h; y++) {
+    const bd = (y / h - fx.bandPos) / 0.09;
+    let k = fx.bandActive ? 1 + 1.0 * Math.exp(-bd * bd) : 1;   // мягкая бегущая полоса
+    if (Math.random() < 0.004) k *= 1.8;                        // редкие светлые строки
+    const a = Math.min(255, (base * k * 255) | 0);
+    for (let x = 0; x < w; x++) {
+      const v = 90 + ((Math.random() * 120) | 0);
+      u32[i++] = (a << 24) | (v << 16) | (v << 8) | v;
+    }
+  }
+  s.cx.putImageData(s.img, 0, 0);
+}
+
+function mfxResizeStatic(fx, W, H) {
+  const w = MENU_STATIC_W, h = Math.max(1, Math.round(w * H / W));
+  const cv = els.menuStatic;
+  cv.width = w; cv.height = h;
+  const cx = cv.getContext('2d');
+  const img = cx.createImageData(w, h);
+  fx.stat = { w, h, cx, img, u32: new Uint32Array(img.data.buffer) };
+}
+
+// Общий планировщик событий: всплеск помех, срыв кадра, провал яркости монитора.
+function mfxFrame(ts) {
+  const fx = els.menuFx;
+  if (!fx) return;
+  fx.raf = requestAnimationFrame(mfxFrame);
+  const dtMs = Math.min(100, ts - fx.last);
+  fx.last = ts;
+  const visible = els.menu && !els.menu.hidden && !els.menu.classList.contains('is-pause-settings') && els.menuScale && fx.stat;
+  if (!visible) return;
+  fx.t = ts;
+
+  if (fx.reduced) {   // «уменьшить движение»: один статичный кадр
+    if (!fx.staticDone) {
+      mfxDrawSmoke(fx, 4000); mfxDrawEmbers(fx, 0, 0); mfxDrawStatic(fx, false);
+      fx.staticDone = true;
+    }
+    return;
+  }
+
+  // дым ~16 к/с: он медленный, больше не нужно
+  fx.smokeAcc += dtMs;
+  if (fx.smokeAcc >= 62) { fx.smokeAcc = 0; mfxDrawSmoke(fx, ts); }
+  mfxDrawEmbers(fx, dtMs / 1000, ts);
+
+  // монитор, статика и мерцание ~20 к/с, как грубая развёртка телевизора
+  fx.tickAcc += dtMs;
+  if (fx.tickAcc < 50) return;
+  const tickMs = fx.tickAcc;
+  fx.tickAcc = 0;
+
+  if (ts >= fx.nextEvent) {
+    const r = Math.random();
+    fx.eventType = r < 0.35 ? 'roll' : r < 0.5 ? 'drop' : 'burst';
+    fx.eventUntil = ts + rand(350, 700);
+    fx.nextEvent = ts + rand(12000, 24000);
+    fx.jolt = 1 + Math.floor(Math.random() * 2);
+    if (fx.eventType === 'roll' && fx.mon) fx.mon.roll = { p: 0, dur: 700 };
+  }
+  const burst = ts < fx.eventUntil;
+
+  if (!fx.bandActive && ts >= fx.nextBand) { fx.bandActive = true; fx.bandPos = -0.15; fx.bandSpeed = rand(0.1, 0.18); }
+  if (fx.bandActive) {
+    fx.bandPos += fx.bandSpeed * tickMs / 1000;
+    if (fx.bandPos > 1.2) { fx.bandActive = false; fx.nextBand = ts + rand(9000, 16000); }
+  }
+
+  mfxTickMonitor(fx, tickMs, burst, fx.eventType);
+  fx.statAcc += tickMs;   // зерно ~8 к/с: «дышит», а не дрожит
+  if (fx.statAcc >= 120) { fx.statAcc = 0; mfxDrawStatic(fx, burst); }
+
+  // лёгкая дрожь картинки на всплесках
+  if (fx.jolt > 0) {
+    els.menuShake.style.transform = `translate(${rand(-1.5, 1.5).toFixed(1)}px, ${rand(-1, 1).toFixed(1)}px)`;
+    fx.jolt--;
+  } else if (els.menuShake.style.transform) {
+    els.menuShake.style.transform = '';
+  }
+
+  // мерцание яркости всего кадра
+  const fl = burst && fx.eventType === 'drop' ? 0.2 : (Math.random() < 0.015 ? rand(0.03, 0.07) : 0);
+  if (fl !== fx.flickLevel) { fx.flickLevel = fl; els.menuFlicker.style.opacity = String(fl); }
+}
+
+function mfxStart() {
+  const art = els.menuArt;
+  const now = performance.now();
+  const fx = {
+    reduced: REDUCE, raf: 0, last: now, t: 0, smokeAcc: 0, tickAcc: 0,
+    nextEvent: now + 6000, eventUntil: 0, eventType: 'burst', jolt: 0, statAcc: 0,
+    nextBand: now + 7000, bandActive: false, bandPos: -1, bandSpeed: 0.3,
+    flickLevel: 0, staticDone: false,
+  };
+  els.menuFx = fx;
+
+  const [sw, sh] = MENU_SMOKE;
+  const [sc, scx] = makeCanvas(sw, sh);
+  sc.className = 'menu-smoke';
+  art.appendChild(sc);
+  fx.smoke = { c: sc, cx: scx, w: sw, h: sh, img: scx.createImageData(sw, sh), tile: mfxNoiseTile() };
+
+  mfxInitMonitor(fx, art);
+  els.menuGlow = el('div', 'menu-glow', art);
+  mfxInitEmbers(fx);
+  fx.embCtx = els.menuEmbers.getContext('2d');
+
+  const img = els.menuImage;
+  const build = () => mfxBuildTex(fx, img);
+  if (img.complete && img.naturalWidth) build(); else img.addEventListener('load', build, { once: true });
+
+  layoutMenuArt();
+  fx.raf = requestAnimationFrame(mfxFrame);
+}
+
+function mfxStop() {
+  if (els.menuFx) cancelAnimationFrame(els.menuFx.raf);
+  els.menuFx = null;
+}
+
+function layoutMenuArt() {
+  const bd = els.menuBackdrop, art = els.menuArt, fx = els.menuFx;
+  if (!bd || !art) return;
+  const W = bd.clientWidth, H = bd.clientHeight;
+  if (!W || !H) return;
+  const s = Math.max(W / MENU_ART.w, H / MENU_ART.h);
+  const ox = (W - MENU_ART.w * s) / 2, oy = (H - MENU_ART.h * s) / 2;
+  art.style.transform = `translate(${ox}px, ${oy}px) scale(${s})`;
+  els.menuScale = { s, ox, oy, W, H };
+  if (!fx) return;
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const cv = els.menuEmbers;
+  cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+  fx.embCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  mfxResizeStatic(fx, W, H);
+  fx.staticDone = false;
+}
+
 const DIGIT_SEGMENTS = {
   '0': 'abcdef', '1': 'bc', '2': 'abged', '3': 'abgcd', '4': 'fgbc',
   '5': 'afgcd', '6': 'afgedc', '7': 'abc', '8': 'abcdefg', '9': 'abcdfg',
@@ -540,6 +1010,20 @@ function updateScare(dt, ctx) {
   drawScare(sc, dt);
 }
 
+// ---------- музыка главного меню ----------
+// Браузер разрешает звук только после касания: музыка стартует с первого касания на экране меню.
+// Играет через audio.play (петля «в голове»), на старте смены гасится.
+function startMenuMusic() {
+  if (!els.menuMusicUnlocked || els.menuMusic || !els.menu || els.menu.hidden) return;
+  audio.init();   // снимает ручную паузу звука (возврат в меню из паузы)
+  els.menuMusic = audio.play('amb_menu', { loop: true }) || null;
+}
+
+function stopMenuMusic() {
+  if (els.menuMusic) audio.stop?.(els.menuMusic);
+  els.menuMusic = null;
+}
+
 function showStart(titleKey, ctx) {
   els.menuNotice.textContent = titleKey === 'ui.shiftFailed' ? ctx.t(titleKey) : '';
   showMainMenu(ctx);
@@ -558,6 +1042,7 @@ function showMainMenu(ctx) {
   els.settingsPanel.hidden = true;
   els.menuMain.hidden = false;
   syncMenu(ctx.state, ctx.t);
+  startMenuMusic();
 }
 
 function showPauseMenu() {
@@ -595,7 +1080,7 @@ function syncMenu(state, t) {
   els.loadBtn.disabled = !els.hasSave;
   els.menuStatus.textContent = state.progress.gameComplete
     ? t(state.flags.ending === 'good' ? 'minigame.ending.good' : 'minigame.ending.bad')
-    : hasProgress ? t('ui.continueNight', { n: state.night }) : t('ui.headphones');
+    : hasProgress ? t('ui.continueNight', { n: state.night }) : '';
 }
 
 function persistSettings() {
@@ -665,13 +1150,30 @@ export function mount(rootEl, ctx) {
   els.menu = el('section', 'main-menu', root);
   els.stage.inert = true;
   els.menu.setAttribute('aria-label', t('menu.title'));
-  const menuBackdrop = el('div', 'menu-backdrop', els.menu);
-  const menuImage = el('img', 'menu-background', menuBackdrop);
-  menuImage.src = 'assets/img/menu/menu_background.jpeg';
-  menuImage.alt = '';
-  menuImage.draggable = false;
-  el('div', 'menu-haze', menuBackdrop);
-  el('div', 'menu-effects', menuBackdrop);
+  els.menuBackdrop = el('div', 'menu-backdrop', els.menu);
+  els.menuShake = el('div', 'menu-shake', els.menuBackdrop);
+  els.menuArt = el('div', 'menu-art', els.menuShake);
+  els.menuImage = el('img', 'menu-background', els.menuArt);
+  els.menuImage.src = 'assets/img/menu/menu_background.jpeg';
+  els.menuImage.alt = '';
+  els.menuImage.draggable = false;
+  els.menuEmbers = el('canvas', 'menu-embers', els.menuShake);
+  els.menuStatic = el('canvas', 'menu-static', els.menuBackdrop);
+  els.menuFlicker = el('div', 'menu-flicker', els.menuBackdrop);
+  for (const n of [els.menuEmbers, els.menuStatic, els.menuFlicker]) n.setAttribute('aria-hidden', 'true');
+  layoutMenuArt();
+  mfxStart();
+  if (typeof ResizeObserver !== 'undefined') {
+    els.menuResizeObserver = new ResizeObserver(layoutMenuArt);
+    els.menuResizeObserver.observe(els.menuBackdrop);
+  } else {
+    window.addEventListener('resize', layoutMenuArt);
+  }
+  els.menu.addEventListener('pointerdown', () => {
+    els.menuMusicUnlocked = true;
+    audio.init();
+    startMenuMusic();
+  });
   const menuPanel = el('div', 'menu-panel', els.menu);
   els.hasSave = ctx.hasSave;
   els.menuMain = el('div', 'menu-main', menuPanel);
@@ -878,6 +1380,7 @@ export function mount(rootEl, ctx) {
     on('camera:open', syncCam),
     on('camera:close', syncCam),
     on('night:start', () => {
+      stopMenuMusic();
       els.gameActive = true;
       els.stage.inert = false;
       els.pauseScreen.hidden = true;
@@ -914,7 +1417,11 @@ export function mount(rootEl, ctx) {
 }
 
 export function unmount() {
+  stopMenuMusic();
   if (els.handleEscape) window.removeEventListener('keydown', els.handleEscape);
+  window.removeEventListener('resize', layoutMenuArt);
+  mfxStop();
+  els.menuResizeObserver?.disconnect();
   els.resizeObserver?.disconnect();
   offs.forEach((off) => off());
   offs = [];

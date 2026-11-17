@@ -244,5 +244,12 @@
     "kind": "ui",
     "loop": false,
     "volume": 0.95
+  },
+  {
+    "id": "amb_menu",
+    "file": "assets/audio/amb_menu.mp3",
+    "kind": "ambient",
+    "loop": true,
+    "volume": 0.6
   }
 ]
