@@ -936,10 +936,6 @@
     .rc-nav { display: flex; gap: 30px; margin-left: 8px; flex: 1; }
     .rc-nav-item { font-size: 21px; color: #5b6b86; padding: 6px 0; border-bottom: 3px solid transparent; white-space: nowrap; }
     .rc-nav-item.is-active { color: #0f1f3d; font-weight: 600; border-bottom-color: #2457d6; }
-    .rc-lang { display: flex; padding: 4px; border-radius: 999px; background: #e8edf6; }
-    .rc-lang-btn { min-width: 62px; height: 44px; border: 0; border-radius: 999px; background: transparent; font-size: 20px; font-weight: 700; color: #5b6b86; }
-    .rc-lang-btn[aria-pressed="true"] { background: #fff; color: #2457d6; box-shadow: 0 1px 4px rgba(15,31,61,0.18); }
-
     .rc-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: #b9c4d8 transparent; -webkit-overflow-scrolling: touch; }
     .rc-page { padding: 34px 56px 30px; }
     .rc-crumbs { display: flex; align-items: center; gap: 12px; font-size: 20px; color: #5b6b86; }
@@ -1026,17 +1022,6 @@
       </div>
     </div>
   </div>
-  <script>
-    // Перезагрузка после смены языка на вступительном экране: дисклеймер и вступление не повторяются,
-    // сцена стартует из чёрного (main.js сам проявит её и снимет флаг).
-    try {
-      if (sessionStorage.getItem('kontorka.skipIntro') === '1') {
-        document.getElementById('disclaimer').hidden = true;
-        window.__kontorkaDisclaimerAccepted = true;
-        document.getElementById('scene-fade').classList.add('is-on');
-      }
-    } catch (e) { /* sessionStorage недоступен: покажется обычный вход */ }
-  </script>
   <script type="module">
     // Дисклеймер: клик по «ОК» это первое касание, которое разблокирует звук.
     const box = document.getElementById('disclaimer');

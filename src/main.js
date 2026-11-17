@@ -5,7 +5,7 @@ import { loadLang, t } from './i18n.js';
 import * as audio from './audio.js';
 import * as desk from './ui/desk.js';
 import * as recruitment from './ui/recruitment.js';
-import { fadeIn, fadeOut, fadeThrough, isBusy } from './ui/fade.js';
+import { fadeThrough, isBusy } from './ui/fade.js';
 import * as cameras from './ui/cameras.js';
 import * as teams from './ui/teams.js';
 import * as minigames from './ui/minigames.js';
@@ -21,7 +21,6 @@ const ENEMY_MODULES = { mr404 };   // id врага из nights.json -> моду
 const MAX_DT = 0.1; // секунды
 const NIGHT_SEC = 360;
 const SETTINGS_KEY = 'kontorka.settings.v1';
-const INTRO_SKIP_KEY = 'kontorka.skipIntro';   // sessionStorage: одноразовый пропуск вступления после смены языка
 
 function detectDeviceLanguage() {
   const languages = navigator.languages?.length ? navigator.languages : [navigator.language];
@@ -33,6 +32,7 @@ let last = null;
 let lastHour = 0;
 let gamePaused = false;
 let pausedShift = false;
+let appCtx = null;
 let nights = {};   // data/nights.json
 let minigamesData = {};
 
@@ -178,7 +178,7 @@ on('intent:newGame', () => {
     set('mgScore', { correct: 0, total: 0, weighted: 0, weightTotal: 0, pressure: 0 });
     set('flags', { demoDone: false, ending: null, unlocked: [] });
     set('progress', { completedNight: 0, minigamePending: null, minigameIndex: 0, gameComplete: false, summary: null });
-    launchNight();
+    recruitment.mount(document.getElementById('app'), appCtx);
   }, { in: 600 });
 });
 
@@ -600,29 +600,11 @@ async function loadJSON(path) {
   return res.json();
 }
 
-// ---------- вступительный экран (вакансия на планшете) ----------
-function startIntro(ctx) {
-  let skip = false;
-  try {
-    skip = sessionStorage.getItem(INTRO_SKIP_KEY) === '1';
-    sessionStorage.removeItem(INTRO_SKIP_KEY);
-  } catch (e) { /* без sessionStorage вступление просто покажется */ }
-  if (skip) {          // вернулись после смены языка: страница уже закрыта чёрным слоем, проявляем её
-    fadeIn({ in: 1100 });
-    return;
-  }
-  if (new URLSearchParams(location.search).get('intro') === '0') return;
-  recruitment.mount(document.getElementById('app'), ctx);
-}
-
-on('intent:recruitDone', ({ langChanged = false } = {}) => {
-  if (langChanged) {
-    // Остальной интерфейс собран на прежнем языке: перезагружаем из чёрного, вступление не повторяется.
-    try { sessionStorage.setItem(INTRO_SKIP_KEY, '1'); } catch (e) { /* ничего страшного */ }
-    fadeOut({ out: 800 }).then(() => location.reload());
-    return;
-  }
-  fadeThrough(() => recruitment.unmount());   // главное меню уже собрано под вступлением
+on('intent:recruitDone', () => {
+  fadeThrough(() => {
+    recruitment.unmount();
+    launchNight();
+  });
 });
 
 async function boot() {
@@ -677,18 +659,17 @@ async function boot() {
   }
 
   const hasSave = load();
-  const ctx = { state, t, emit, on, settings, hasSave };
-  desk.mount(document.getElementById('app'), ctx);
-  cameras.mount(document.getElementById('monitor-left'), ctx);
-  teams.mount(document.getElementById('monitor-right'), ctx);
-  minigames.mount(document.getElementById('app'), ctx);
+  appCtx = { state, t, emit, on, settings, hasSave };
+  desk.mount(document.getElementById('app'), appCtx);
+  cameras.mount(document.getElementById('monitor-left'), appCtx);
+  teams.mount(document.getElementById('monitor-right'), appCtx);
+  minigames.mount(document.getElementById('app'), appCtx);
   initDebug();
 
   if (state.progress.gameComplete) {
     emit('ending:show', { ending: state.flags.ending, score: state.mgScore });
   }
 
-  startIntro(ctx);
   requestAnimationFrame(frame);
 }
 

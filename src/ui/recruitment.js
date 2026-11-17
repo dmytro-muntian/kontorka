@@ -3,9 +3,6 @@
 // Перспектива считается той же гомографией, что у мониторов стола (monitorMatrix из desk.js).
 
 import { monitorMatrix } from './desk.js';
-import { loadLang, getLang } from '../i18n.js';
-
-const SETTINGS_KEY = 'kontorka.settings.v1';
 const AUTO_CONTINUE_SEC = 5;   // после подтверждения сам идёт в меню (по tick, а не таймером)
 
 // Всё про планшет в одном месте. Координаты в px исходного фото (1673x940), не окна браузера.
@@ -58,24 +55,12 @@ function onPress(node, fn) {
   });
 }
 
-function persistLanguage(ctx, lang) {
-  try {
-    let stored = {};
-    try { stored = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}'); } catch (e) { /* пустые настройки */ }
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ ...(ctx.settings ?? {}), ...stored, language: lang, languageAuto: false }));
-  } catch (e) {
-    console.warn('recruitment: не удалось сохранить язык', e);
-  }
-}
-
 export function mount(rootEl, ctx) {
   const { t, emit, on } = ctx;
   const [photoW, photoH] = TABLET.photo;
   const [w, h] = TABLET.size;
 
   st = {
-    ctx,
-    bootLang: getLang(),
     texts: [],          // [узел, ключ, атрибут|null]
     offs: [],
     began: false,
@@ -127,19 +112,6 @@ export function mount(rootEl, ctx) {
     const link = el('span', i === 0 ? 'rc-nav-item is-active' : 'rc-nav-item', nav);
     bind(link, key);
   });
-  const lang = el('div', 'rc-lang', header);
-  lang.setAttribute('role', 'group');
-  bind(lang, 'recruit.lang.aria', 'aria-label');
-  st.langBtns = {};
-  for (const code of ['ru', 'de']) {
-    const b = el('button', 'rc-lang-btn', lang);
-    b.type = 'button';
-    b.dataset.noUiClick = 'true';
-    bind(b, `recruit.lang.${code}`);
-    st.langBtns[code] = b;
-    onPress(b, () => setLanguage(code));
-  }
-
   // Содержимое (прокручивается внутри экрана, как на настоящем сайте)
   const scroll = el('main', 'rc-scroll', screen);
   const page = el('article', 'rc-page', scroll);
@@ -251,20 +223,6 @@ export function mount(rootEl, ctx) {
       if (attr) node.setAttribute(attr, value);
       else node.textContent = value;
     }
-    const current = getLang();
-    for (const [code, b] of Object.entries(st.langBtns)) b.setAttribute('aria-pressed', String(code === current));
-  }
-
-  async function setLanguage(code) {
-    if (code === getLang()) return;
-    try {
-      await loadLang(code);
-    } catch (e) {
-      console.warn('recruitment: не удалось загрузить язык', code, e);
-      return;
-    }
-    persistLanguage(ctx, code);
-    render();
   }
 
   function begin() {
@@ -287,7 +245,7 @@ export function mount(rootEl, ctx) {
     if (st.done || !st.applied) return;
     st.done = true;
     st.autoLeft = 0;
-    emit('intent:recruitDone', { langChanged: getLang() !== st.bootLang });
+    emit('intent:recruitDone');
   }
 }
 
