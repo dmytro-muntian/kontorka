@@ -1,0 +1,198 @@
+{
+  "effects": {
+    "correctAppetite": -2,
+    "incorrectAppetite": 3,
+    "pressurePerWeight": 1,
+    "pressureLimit": 10
+  },
+  "games": {
+    "mg_n1": {
+      "night": 1,
+      "weight": 0,
+      "titleKey": "minigame.n1.title",
+      "requests": [
+        {
+          "id": "n1-access",
+          "durationSec": 8,
+          "promptKey": "minigame.n1.q1",
+          "options": [
+            { "id": "deny", "labelKey": "minigame.n1.q1a" },
+            { "id": "approve", "labelKey": "minigame.n1.q1b" }
+          ],
+          "correctOptionId": "deny"
+        },
+        {
+          "id": "n1-decoy",
+          "durationSec": 6,
+          "decoy": true,
+          "promptKey": "minigame.n1.q2",
+          "options": [
+            { "id": "seen", "labelKey": "minigame.n1.q2a" },
+            { "id": "later", "labelKey": "minigame.n1.q2b" }
+          ],
+          "correctOptionId": null
+        },
+        {
+          "id": "n1-privacy",
+          "durationSec": 8,
+          "promptKey": "minigame.n1.q3",
+          "options": [
+            { "id": "approve", "labelKey": "minigame.n1.q3a" },
+            { "id": "deny", "labelKey": "minigame.n1.q3b" }
+          ],
+          "correctOptionId": "deny"
+        }
+      ]
+    },
+    "mg_n2": {
+      "night": 2,
+      "weight": 1,
+      "titleKey": "minigame.n2.title",
+      "requests": [
+        {
+          "id": "n2-training",
+          "durationSec": 8,
+          "promptKey": "minigame.n2.q1",
+          "options": [
+            { "id": "approve", "labelKey": "minigame.n2.q1a" },
+            { "id": "deny", "labelKey": "minigame.n2.q1b" }
+          ],
+          "correctOptionId": "deny"
+        },
+        {
+          "id": "n2-decoy",
+          "durationSec": 6,
+          "decoy": true,
+          "promptKey": "minigame.n2.q2",
+          "options": [
+            { "id": "archive", "labelKey": "minigame.n2.q2a" },
+            { "id": "dismiss", "labelKey": "minigame.n2.q2b" }
+          ],
+          "correctOptionId": null
+        },
+        {
+          "id": "n2-export",
+          "durationSec": 9,
+          "promptKey": "minigame.n2.q3",
+          "options": [
+            { "id": "approve", "labelKey": "minigame.n2.q3a" },
+            { "id": "deny", "labelKey": "minigame.n2.q3b" }
+          ],
+          "correctOptionId": "deny"
+        }
+      ]
+    },
+    "mg_n3": {
+      "night": 3,
+      "weight": 1,
+      "titleKey": "minigame.n3.title",
+      "requests": [
+        {
+          "id": "n3-backup",
+          "durationSec": 8,
+          "promptKey": "minigame.n3.q1",
+          "options": [
+            { "id": "approve", "labelKey": "minigame.n3.q1a" },
+            { "id": "deny", "labelKey": "minigame.n3.q1b" }
+          ],
+          "correctOptionId": "deny"
+        },
+        {
+          "id": "n3-idle",
+          "durationSec": 7,
+          "promptKey": "minigame.n3.q2",
+          "idleCorrect": true,
+          "options": [
+            { "id": "close", "labelKey": "minigame.n3.q2a" },
+            { "id": "approve", "labelKey": "minigame.n3.q2b" }
+          ],
+          "correctOptionId": null
+        },
+        {
+          "id": "n3-audit",
+          "durationSec": 9,
+          "promptKey": "minigame.n3.q3",
+          "options": [
+            { "id": "approve", "labelKey": "minigame.n3.q3a" },
+            { "id": "deny", "labelKey": "minigame.n3.q3b" }
+          ],
+          "correctOptionId": "approve"
+        }
+      ]
+    },
+    "mg_n4": {
+      "night": 4,
+      "weight": 3,
+      "titleKey": "minigame.n4.title",
+      "requests": [
+        {
+          "id": "n4-mind",
+          "durationSec": 8,
+          "promptKey": "minigame.n4.q1",
+          "options": [
+            { "id": "approve", "labelKey": "minigame.n4.q1a" },
+            { "id": "deny", "labelKey": "minigame.n4.q1b" }
+          ],
+          "correctOptionId": "deny"
+        },
+        {
+          "id": "n4-live",
+          "durationSec": 10,
+          "promptKey": "minigame.n4.q2",
+          "options": [
+            { "id": "approve", "labelKey": "minigame.n4.q2a" },
+            { "id": "deny", "labelKey": "minigame.n4.q2b" }
+          ],
+          "correctOptionId": "deny"
+        },
+        {
+          "id": "n4-purge",
+          "durationSec": 9,
+          "promptKey": "minigame.n4.q3",
+          "options": [
+            { "id": "erase", "labelKey": "minigame.n4.q3a" },
+            { "id": "keep", "labelKey": "minigame.n4.q3b" }
+          ],
+          "correctOptionId": "keep"
+        }
+      ]
+    },
+    "mg_n5": {
+      "night": 5,
+      "weight": 3,
+      "titleKey": "minigame.n5.title",
+      "requests": [
+        {
+          "id": "n5-stop",
+          "durationSec": 8,
+          "promptKey": "minigame.n5.q1",
+          "options": [
+            { "id": "stop", "labelKey": "minigame.n5.q1a" },
+            { "id": "grant", "labelKey": "minigame.n5.q1b" }
+          ],
+          "correctOptionId": "stop"
+        },
+        {
+          "id": "n5-evacuate",
+          "durationSec": 10,
+          "promptKey": "minigame.n5.q2",
+          "options": [
+            { "id": "stay", "labelKey": "minigame.n5.q2a" },
+            { "id": "evacuate", "labelKey": "minigame.n5.q2b" }
+          ],
+          "correctOptionId": "evacuate"
+        },
+        {
+          "id": "n5-publish",
+          "durationSec": 9,
+          "promptKey": "minigame.n5.q3",
+          "options": [
+            { "id": "hide", "labelKey": "minigame.n5.q3a" },
+            { "id": "publish", "labelKey": "minigame.n5.q3b" }
+          ],
+          "correctOptionId": "publish"
+        }
+      ]
+    }
+  }
+}

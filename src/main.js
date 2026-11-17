@@ -1,11 +1,12 @@
 // Единственный игровой цикл. Другие модули время берут только из события tick.
 
-import { state, set, patch, emit, on, newNight, recalcLoad, tickTokens } from './state.js';
+import { state, set, patch, emit, on, newNight, recalcLoad, tickTokens, save, load, resetSave } from './state.js';
 import { loadLang, t } from './i18n.js';
 import * as audio from './audio.js';
 import * as desk from './ui/desk.js';
 import * as cameras from './ui/cameras.js';
 import * as teams from './ui/teams.js';
+import * as minigames from './ui/minigames.js';
 import * as tickets from './tickets.js';
 import * as glitches from './glitches.js';
 import * as calls from './calls.js';
@@ -21,6 +22,7 @@ const NIGHT_SEC = 360;
 let last = null;
 let lastHour = 0;
 let nights = {};   // data/nights.json
+let minigamesData = {};
 
 function frame(now) {
   requestAnimationFrame(frame);
@@ -65,6 +67,18 @@ on('tick', ({ dt }) => {
 // ---------- намерения интерфейса ----------
 on('intent:startShift', () => {
   if (state.running) return;
+  if (state.progress.gameComplete) {
+    emit('ending:show', { ending: state.flags.ending, score: state.mgScore });
+    return;
+  }
+  if (state.progress.minigamePending !== null) {
+    resumeMinigame();
+    return;
+  }
+  launchNight();
+});
+
+function launchNight() {
   audio.init();
   overloaded = false;
   warning = false;
@@ -72,6 +86,153 @@ on('intent:startShift', () => {
   newNight(state.night, nights[state.night] || {});
   lastHour = 0;
   set('running', true);
+}
+
+on('intent:newGame', () => {
+  if (state.running) return;
+  resetSave();
+  set('night', 1);
+  set('appetite', 0);
+  set('mgScore', { correct: 0, total: 0, weighted: 0, weightTotal: 0, pressure: 0 });
+  set('flags', { demoDone: false, ending: null, unlocked: [] });
+  set('progress', { completedNight: 0, minigamePending: null, minigameIndex: 0, gameComplete: false, summary: null });
+  launchNight();
+});
+
+function gameForNight(night) {
+  const expectedId = nights[night]?.minigame;
+  const byId = expectedId && minigamesData.games?.[expectedId];
+  if (byId) return byId;
+  return Object.values(minigamesData.games ?? {}).find((game) => game.night === night) ?? null;
+}
+
+function minigameSummary() {
+  return {
+    tokens: Math.ceil(state.tokens),
+    sla: Math.round(state.sla),
+    resolved: state.tickets.filter((ticket) => ticket.outcome === 'resolved').length,
+    missed: state.tickets.filter((ticket) => ticket.outcome === 'missed').length,
+  };
+}
+
+function resumeMinigame() {
+  const night = state.progress.minigamePending;
+  const game = gameForNight(night);
+  if (!game) {
+    console.error(`minigame: нет данных мини-игры для ночи ${night}`);
+    return;
+  }
+  if (state.progress.minigameIndex >= game.requests.length) {
+    emit('minigame:complete', { night, game, score: state.mgScore });
+    return;
+  }
+  emit('minigame:start', {
+    night,
+    game,
+    index: state.progress.minigameIndex,
+    summary: state.progress.summary ?? minigameSummary(),
+    score: state.mgScore,
+  });
+}
+
+on('night:end', ({ n, failed }) => {
+  if (failed || state.progress.gameComplete) return;
+  set('progress', {
+    completedNight: n,
+    minigamePending: n,
+    minigameIndex: 0,
+    gameComplete: false,
+    summary: minigameSummary(),
+  });
+  save();
+  resumeMinigame();
+});
+
+on('intent:minigameBegin', () => {
+  if (state.progress.minigamePending === null) return;
+  const game = gameForNight(state.progress.minigamePending);
+  if (!game) {
+    console.error(`minigame: нет данных мини-игры для ночи ${state.progress.minigamePending}`);
+    return;
+  }
+  emit('minigame:question', {
+    night: state.progress.minigamePending,
+    game,
+    index: state.progress.minigameIndex,
+    score: state.mgScore,
+  });
+});
+
+on('intent:minigameAnswer', ({ optionId = null, timeout = false } = {}) => {
+  const night = state.progress.minigamePending;
+  const game = gameForNight(night);
+  const index = state.progress.minigameIndex;
+  const request = game?.requests?.[index];
+  if (!request) return;
+  if (!timeout && !request.options?.some((option) => option.id === optionId)) return;
+
+  let outcome = 'neutral';
+  if (!request.decoy) {
+    outcome = timeout
+      ? (request.idleCorrect ? 'correct' : 'incorrect')
+      : (optionId === request.correctOptionId ? 'correct' : 'incorrect');
+  }
+  const weight = game.weight ?? 0;
+  if (weight > 0 && outcome !== 'neutral') {
+    const score = { ...state.mgScore };
+    score.total += 1;
+    score.weightTotal += weight;
+    const effects = minigamesData.effects ?? {};
+    const pressureDelta = (effects.pressurePerWeight ?? 1) * weight;
+    if (outcome === 'correct') {
+      score.correct += 1;
+      score.weighted += weight;
+      score.pressure += pressureDelta;
+      set('appetite', Math.max(0, state.appetite + (effects.correctAppetite ?? -2)));
+    } else {
+      score.pressure -= pressureDelta;
+      set('appetite', Math.max(0, state.appetite + (effects.incorrectAppetite ?? 3)));
+    }
+    const limit = effects.pressureLimit ?? 10;
+    score.pressure = Math.max(-limit, Math.min(limit, score.pressure));
+    set('mgScore', score);
+  }
+
+  const nextIndex = index + 1;
+  set('progress', { ...state.progress, minigameIndex: nextIndex });
+  save();
+  const isComplete = nextIndex >= game.requests.length;
+  emit(isComplete ? 'minigame:complete' : 'minigame:answer', {
+    night,
+    outcome,
+    index,
+    nextIndex,
+    game,
+    score: state.mgScore,
+  });
+});
+
+on('intent:minigameFinish', () => {
+  const night = state.progress.minigamePending;
+  if (night === null || state.progress.minigameIndex < (gameForNight(night)?.requests?.length ?? Infinity)) return;
+  if (night < 5) {
+    set('progress', { completedNight: night, minigamePending: null, minigameIndex: 0, gameComplete: false, summary: null });
+    set('night', night + 1);
+    save();
+    emit('minigame:close', { nextNight: night + 1 });
+    return;
+  }
+  const ratio = state.mgScore.weightTotal > 0 ? state.mgScore.weighted / state.mgScore.weightTotal : 0;
+  const ending = ratio >= (minigamesData.goodEndingThreshold ?? 0.6) ? 'good' : 'bad';
+  set('flags', { ...state.flags, demoDone: true, ending });
+  set('progress', { completedNight: 5, minigamePending: null, minigameIndex: 0, gameComplete: true, summary: null });
+  save();
+  emit('ending:show', { ending, score: state.mgScore, ratio });
+});
+
+on('intent:endingClose', () => {
+  if (!state.progress.gameComplete) return;
+  emit('minigame:close', { ending: state.flags.ending });
 });
 
 // Открытие камеры: состояние и событие; вид рисует ui/cameras.js.
@@ -385,12 +546,23 @@ async function boot() {
   } catch (e) {
     console.warn('teams-archive.json не загружен, архив пуст', e);
   }
+  try {
+    minigamesData = await loadJSON('data/minigames.json');
+  } catch (e) {
+    console.error('minigames.json не загружен, переходы между ночами недоступны', e);
+  }
 
+  load();
   const ctx = { state, t, emit, on };
   desk.mount(document.getElementById('app'), ctx);
   cameras.mount(document.getElementById('monitor-left'), ctx);
   teams.mount(document.getElementById('monitor-right'), ctx);
+  minigames.mount(document.getElementById('app'), ctx);
   initDebug();
+
+  if (state.progress.gameComplete) {
+    emit('ending:show', { ending: state.flags.ending, score: state.mgScore });
+  }
 
   requestAnimationFrame(frame);
 }

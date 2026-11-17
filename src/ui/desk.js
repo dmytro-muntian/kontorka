@@ -542,7 +542,26 @@ function updateScare(dt, ctx) {
 
 function showStart(titleKey, ctx) {
   els.startTitle.textContent = ctx.t(titleKey);
+  if (titleKey === 'ui.shiftFailed') {
+    els.startBtn.textContent = ctx.t('ui.retry');
+    els.newGameBtn.hidden = false;
+  } else {
+    syncMenu(ctx.state, ctx.t);
+  }
   els.start.hidden = false;
+}
+
+function syncMenu(state, t) {
+  const pending = state.progress.minigamePending !== null;
+  const continuing = state.night > 1 || pending || state.progress.gameComplete;
+  els.startTitle.textContent = state.progress.gameComplete ? t('ui.ending') : t('ui.title');
+  els.startHint.textContent = state.progress.gameComplete
+    ? t(state.flags.ending === 'good' ? 'minigame.ending.good' : 'minigame.ending.bad')
+    : continuing ? t('ui.continueNight', { n: state.night }) : t('ui.headphones');
+  els.startBtn.textContent = state.progress.gameComplete
+    ? t('ui.newGame')
+    : continuing ? t('ui.continue') : t('ui.startShift');
+  els.newGameBtn.hidden = !continuing || state.progress.gameComplete;
 }
 
 export function mount(rootEl, ctx) {
@@ -609,7 +628,12 @@ export function mount(rootEl, ctx) {
   els.startBtn.type = 'button';
   els.startBtn.dataset.noUiClick = 'true';
   els.startBtn.textContent = t('ui.startShift');
-  els.startTitle.textContent = t('ui.title');
+  els.newGameBtn = el('button', 'start-btn start-btn--ghost', els.start);
+  els.newGameBtn.type = 'button';
+  els.newGameBtn.dataset.noUiClick = 'true';
+  els.newGameBtn.textContent = t('ui.newGame');
+  els.newGameBtn.hidden = true;
+  syncMenu(state, t);
 
   // Полный экран: на Android Chrome кнопка убирает панели браузера; на iPhone Safari API нет,
   // там показываем подсказку про запуск с главного экрана (manifest + мета-теги в index.html).
@@ -640,7 +664,12 @@ export function mount(rootEl, ctx) {
   // pointerup от касания — это жест, после которого браузер разрешает звук.
   els.startBtn.addEventListener('pointerup', (e) => {
     if (e.button > 0) return;
-    emit('intent:startShift');
+    if (state.progress.gameComplete) emit('intent:newGame');
+    else emit('intent:startShift');
+  });
+  els.newGameBtn.addEventListener('pointerup', (e) => {
+    if (e.button > 0) return;
+    emit('intent:newGame');
   });
 
   // Подсказка поворота (показывается CSS-ом в портретной ориентации)
@@ -693,9 +722,7 @@ export function mount(rootEl, ctx) {
       syncCam();
       els.start.hidden = true;
     }),
-    // Временно: полноценный экран итога появится на этапе 10.
-    // После скримера (failed) стартовый экран покажет updateScare, когда кадр отыграет.
-    on('night:end', (p) => { if (!p?.failed) showStart('ui.shiftOver', ctx); }),
+    on('minigame:close', () => showStart('ui.title', ctx)),
   ];
 }
 

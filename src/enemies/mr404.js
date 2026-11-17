@@ -108,6 +108,7 @@ export function create(cfg, ctx) {
     const aged = state.tickets.filter((tk) => !tk.done && ticketAge(tk) > TICKET_AGED_SEC).length;
     m *= Math.pow(C.openTicketFactor, Math.min(2, aged));
     m *= 1 - Math.min(state.appetite / 500, C.appetiteFactorMax);
+    m *= 1 - Math.max(-10, Math.min(10, state.mgScore?.pressure ?? 0)) * 0.02;
     const p = Math.max(C.minPauseSec, range(C.pauseSec) * m * pauseMul);
     pauseMul = 1;
     return p + add;
