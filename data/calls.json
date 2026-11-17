@@ -11,113 +11,143 @@
     "lines": [
       {
         "from": 0,
-        "to": 4.0,
+        "to": 1.7,
         "key": "calls.n1.l01"
       },
       {
-        "from": 4.7,
-        "to": 9.5,
+        "from": 1.7,
+        "to": 6.5,
         "key": "calls.n1.l02"
       },
       {
-        "from": 10.2,
-        "to": 12.8,
+        "from": 6.5,
+        "to": 12.4,
         "key": "calls.n1.l03"
       },
       {
-        "from": 13.5,
-        "to": 22.2,
+        "from": 12.4,
+        "to": 15.0,
         "key": "calls.n1.l04"
       },
       {
-        "from": 22.9,
-        "to": 28.1,
+        "from": 15.0,
+        "to": 20.4,
         "key": "calls.n1.l05"
       },
       {
-        "from": 28.8,
-        "to": 35.6,
+        "from": 20.4,
+        "to": 27.0,
         "key": "calls.n1.l06"
       },
       {
-        "from": 36.3,
-        "to": 43.0,
+        "from": 27,
+        "to": 34.1,
         "key": "calls.n1.l07"
       },
       {
-        "from": 43.7,
-        "to": 50.4,
+        "from": 34.1,
+        "to": 41.4,
         "key": "calls.n1.l08"
       },
       {
-        "from": 51.1,
-        "to": 54.5,
+        "from": 41.4,
+        "to": 47.3,
         "key": "calls.n1.l09"
       },
       {
-        "from": 55.2,
-        "to": 63.4,
+        "from": 47.3,
+        "to": 54.0,
         "key": "calls.n1.l10"
       },
       {
-        "from": 64.1,
-        "to": 71.7,
+        "from": 54,
+        "to": 58.7,
         "key": "calls.n1.l11"
       },
       {
-        "from": 72.4,
-        "to": 79.2,
+        "from": 58.7,
+        "to": 63.4,
         "key": "calls.n1.l12"
       },
       {
-        "from": 79.9,
-        "to": 86.8,
+        "from": 63.4,
+        "to": 69.8,
         "key": "calls.n1.l13"
       },
       {
-        "from": 87.5,
-        "to": 95.1,
+        "from": 69.8,
+        "to": 75.6,
         "key": "calls.n1.l14"
       },
       {
-        "from": 95.8,
-        "to": 101.0,
+        "from": 75.6,
+        "to": 81.8,
         "key": "calls.n1.l15"
       },
       {
-        "from": 101.7,
-        "to": 107.6,
+        "from": 81.8,
+        "to": 85.0,
         "key": "calls.n1.l16"
       },
       {
-        "from": 108.3,
-        "to": 113.6,
+        "from": 85,
+        "to": 88.8,
         "key": "calls.n1.l17"
       },
       {
-        "from": 114.3,
-        "to": 119.6,
+        "from": 88.8,
+        "to": 92.5,
         "key": "calls.n1.l18"
       },
       {
-        "from": 120.3,
-        "to": 130.7,
+        "from": 92.5,
+        "to": 100.1,
         "key": "calls.n1.l19"
       },
       {
-        "from": 131.4,
-        "to": 134.9,
+        "from": 100.1,
+        "to": 107.0,
         "key": "calls.n1.l20"
       },
       {
-        "from": 135.6,
-        "to": 137.6,
+        "from": 107,
+        "to": 113.4,
         "key": "calls.n1.l21"
       },
       {
-        "from": 138.3,
-        "to": 141.4,
+        "from": 113.4,
+        "to": 116.2,
         "key": "calls.n1.l22"
+      },
+      {
+        "from": 116.2,
+        "to": 120.9,
+        "key": "calls.n1.l23"
+      },
+      {
+        "from": 120.9,
+        "to": 123.8,
+        "key": "calls.n1.l24"
+      },
+      {
+        "from": 123.8,
+        "to": 133.0,
+        "key": "calls.n1.l25"
+      },
+      {
+        "from": 133,
+        "to": 136.3,
+        "key": "calls.n1.l26"
+      },
+      {
+        "from": 136.3,
+        "to": 139.4,
+        "key": "calls.n1.l27"
+      },
+      {
+        "from": 139.4,
+        "to": 144.0,
+        "key": "calls.n1.l28"
       }
     ],
     "autoAnswer": true,
