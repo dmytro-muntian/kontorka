@@ -8,8 +8,17 @@ export async function loadLang(lang = 'ru') {
   const url = new URL(`../i18n/${lang}.json`, import.meta.url);
   const res = await fetch(url);
   if (!res.ok) throw new Error(`i18n: не удалось загрузить ${url} (${res.status})`);
-  dict = await res.json();
+  const selected = await res.json();
+  if (lang === 'ru') dict = selected;
+  else {
+    const fallbackUrl = new URL('../i18n/ru.json', import.meta.url);
+    const fallbackRes = await fetch(fallbackUrl);
+    if (!fallbackRes.ok) throw new Error(`i18n: не удалось загрузить ${fallbackUrl} (${fallbackRes.status})`);
+    dict = { ...(await fallbackRes.json()), ...selected };
+  }
   currentLang = lang;
+  document.documentElement.lang = lang;
+  if (dict['ui.title']) document.title = dict['ui.title'];
 }
 
 export function getLang() {

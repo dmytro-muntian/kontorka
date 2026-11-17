@@ -18,9 +18,12 @@ const ENEMY_MODULES = { mr404 };   // id врага из nights.json -> моду
 
 const MAX_DT = 0.1; // секунды
 const NIGHT_SEC = 360;
+const SETTINGS_KEY = 'kontorka.settings.v1';
 
 let last = null;
 let lastHour = 0;
+let gamePaused = false;
+let pausedShift = false;
 let nights = {};   // data/nights.json
 let minigamesData = {};
 
@@ -28,6 +31,10 @@ function frame(now) {
   requestAnimationFrame(frame);
   if (document.hidden) {
     last = null;
+    return;
+  }
+  if (gamePaused) {
+    last = now;
     return;
   }
   if (last === null) {
@@ -78,7 +85,69 @@ on('intent:startShift', () => {
   launchNight();
 });
 
+on('intent:loadGame', () => {
+  if (state.running) return;
+  if (!load()) {
+    emit('save:change', { available: false });
+    return;
+  }
+  audio.init();
+  if (state.progress.gameComplete) {
+    emit('ending:show', { ending: state.flags.ending, score: state.mgScore });
+  } else if (state.progress.minigamePending !== null) {
+    resumeMinigame();
+  } else {
+    launchNight();
+  }
+});
+
+on('intent:pauseGame', () => {
+  if (!state.running && state.progress.minigamePending === null) return;
+  pausedShift = state.running;
+  gamePaused = true;
+  set('running', false);
+  audio.setAmbient([]);
+  audio.setPaused(true);
+  emit('game:paused');
+});
+
+on('intent:resumeGame', () => {
+  gamePaused = false;
+  last = null;
+  audio.setPaused(false);
+  set('running', pausedShift);
+  pausedShift = false;
+  if (state.running) syncAmbient();
+  emit('game:resumed');
+});
+
+on('intent:returnMainMenu', () => {
+  gamePaused = false;
+  pausedShift = false;
+  last = null;
+  if (state.running) set('running', false);
+  emit('game:exit');
+  stopHoldSound();
+  if (lureSnd) { audio.stop(lureSnd); lureSnd = null; }
+  if (alarm) { audio.stop(alarm); alarm = null; }
+  if (state.camera !== null) {
+    set('camera', null);
+    emit('camera:close');
+  }
+  set('repairing', false);
+  set('call.active', false);
+  set('call.left', 0);
+  recalcLoad();
+  audio.setAmbient([]);
+  audio.setPaused(true);
+  save();
+  emit('game:menu');
+});
+
 function launchNight() {
+  gamePaused = false;
+  pausedShift = false;
+  last = null;
   audio.init();
   overloaded = false;
   warning = false;
@@ -518,7 +587,18 @@ async function loadJSON(path) {
 }
 
 async function boot() {
-  await loadLang('ru');
+  let settings = { language: 'ru', volume: 0.8 };
+  try {
+    const stored = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
+    settings = {
+      language: stored.language === 'de' ? 'de' : 'ru',
+      volume: Number.isFinite(stored.volume) ? Math.max(0, Math.min(1, stored.volume)) : 0.8,
+    };
+  } catch (e) {
+    console.warn('settings: не удалось прочитать настройки', e);
+  }
+  await loadLang(settings.language);
+  audio.setMasterVolume(settings.volume);
   graph.loadGraph(await loadJSON('data/rooms.json'));
   try {
     audio.loadCatalog(await loadJSON('data/sounds.json'));
@@ -552,8 +632,8 @@ async function boot() {
     console.error('minigames.json не загружен, переходы между ночами недоступны', e);
   }
 
-  load();
-  const ctx = { state, t, emit, on };
+  const hasSave = load();
+  const ctx = { state, t, emit, on, settings, hasSave };
   desk.mount(document.getElementById('app'), ctx);
   cameras.mount(document.getElementById('monitor-left'), ctx);
   teams.mount(document.getElementById('monitor-right'), ctx);

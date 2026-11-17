@@ -5,6 +5,8 @@ import { distance, panOf, PLAYER_POS } from './graph.js';
 
 let ctx = null;
 let master = null;
+let masterVolume = 1;
+let manuallyPaused = false;
 const catalog = {};     // id -> { file, kind, loop, volume }
 const buffers = {};     // id -> AudioBuffer
 let ambient = [];       // [{ id, handle }]
@@ -12,6 +14,7 @@ const soundLoads = new Map(); // id -> Promise<AudioBuffer | null>
 
 // Вызывать только из обработчика касания.
 export function init() {
+  manuallyPaused = false;
   if (ctx) {
     if (ctx.state !== 'running') ctx.resume();
     return ctx;
@@ -25,7 +28,7 @@ export function init() {
   ctx.resume();
   watchContext();
   master = ctx.createGain();
-  master.gain.value = 1;
+  master.gain.value = masterVolume;
   master.connect(ctx.destination);
   // Тихий буфер: страховка для iOS, чтобы контекст точно проснулся.
   const buf = ctx.createBuffer(1, 1, 22050);
@@ -41,7 +44,7 @@ export function init() {
 // (suspended, а на iPhone ещё interrupted). Будим его при любом таком событии и при любом касании.
 function watchContext() {
   const wake = () => {
-    if (ctx && ctx.state !== 'running') ctx.resume().catch(() => {});
+    if (!manuallyPaused && ctx && ctx.state !== 'running') ctx.resume().catch(() => {});
   };
   ctx.addEventListener?.('statechange', () => {
     console.info(`audio: состояние ${ctx.state}`);
@@ -61,6 +64,23 @@ export function soundIds() {
 
 export function getContext() {
   return ctx;
+}
+
+export function setPaused(paused) {
+  manuallyPaused = paused;
+  if (!ctx) return;
+  const action = paused ? ctx.suspend() : ctx.resume();
+  action.catch((e) => console.warn(`audio: не удалось ${paused ? 'приостановить' : 'возобновить'} контекст`, e));
+}
+
+export function setMasterVolume(value) {
+  const volume = Number(value);
+  if (!Number.isFinite(volume)) {
+    console.warn('audio: громкость должна быть числом');
+    return;
+  }
+  masterVolume = Math.max(0, Math.min(1, volume));
+  if (master) master.gain.setTargetAtTime(masterVolume, ctx.currentTime, 0.02);
 }
 
 // Читает каталог звуков (вызывается при загрузке игры, до касания).
@@ -122,6 +142,7 @@ export function play(soundId, opts = {}) {
     console.warn(`audio.play: звука «${soundId}» нет в каталоге`);
     return null;
   }
+  if (manuallyPaused) return null;
   if (!ctx) return null;
   if (ctx.state !== 'running') ctx.resume();
 
@@ -419,7 +440,7 @@ export function loadCalls(map) {
 // getTime() отсчитывается от фактического старта аудио, а не от нажатия «Принять».
 export function playCall(callId) {
   const def = callDefs[callId];
-  if (!def?.audio || !ctx) return null;
+  if (manuallyPaused || !def?.audio || !ctx) return null;
   if (ctx.state !== 'running') ctx.resume();
   const handle = {
     duration: null,

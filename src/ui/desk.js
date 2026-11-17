@@ -541,27 +541,69 @@ function updateScare(dt, ctx) {
 }
 
 function showStart(titleKey, ctx) {
-  els.startTitle.textContent = ctx.t(titleKey);
-  if (titleKey === 'ui.shiftFailed') {
-    els.startBtn.textContent = ctx.t('ui.retry');
-    els.newGameBtn.hidden = false;
-  } else {
-    syncMenu(ctx.state, ctx.t);
-  }
-  els.start.hidden = false;
+  els.menuNotice.textContent = titleKey === 'ui.shiftFailed' ? ctx.t(titleKey) : '';
+  showMainMenu(ctx);
+}
+
+function showMainMenu(ctx) {
+  els.gameActive = false;
+  els.stage.inert = true;
+  document.querySelector('.mg-screen')?.setAttribute('inert', '');
+  els.menu.style.zIndex = '';
+  els.menu.classList.remove('is-pause-settings');
+  els.pauseScreen.hidden = true;
+  els.paused = false;
+  els.gameActive = false;
+  els.menu.hidden = false;
+  els.settingsPanel.hidden = true;
+  els.menuMain.hidden = false;
+  syncMenu(ctx.state, ctx.t);
+}
+
+function showPauseMenu() {
+  els.stage.inert = true;
+  els.menu.style.zIndex = '';
+  els.menu.classList.remove('is-pause-settings');
+  els.settingsPanel.hidden = true;
+  els.menuMain.hidden = false;
+  const minigameScreen = document.querySelector('.mg-screen');
+  if (minigameScreen) minigameScreen.inert = true;
+  els.menu.hidden = true;
+  els.paused = true;
+  els.pauseScreen.hidden = false;
+  els.pauseResumeBtn.focus();
+}
+
+function showSettings(returnTo) {
+  els.settingsReturn = returnTo;
+  els.menu.style.zIndex = returnTo === 'pause' ? '41' : '';
+  els.menu.classList.toggle('is-pause-settings', returnTo === 'pause');
+  els.pauseScreen.hidden = true;
+  els.menu.hidden = false;
+  els.menuMain.hidden = true;
+  els.settingsPanel.hidden = false;
 }
 
 function syncMenu(state, t) {
   const pending = state.progress.minigamePending !== null;
-  const continuing = state.night > 1 || pending || state.progress.gameComplete;
-  els.startTitle.textContent = state.progress.gameComplete ? t('ui.ending') : t('ui.title');
-  els.startHint.textContent = state.progress.gameComplete
+  const hasProgress = state.night > 1 || pending || state.progress.gameComplete;
+  els.menuTitle.textContent = t('ui.title');
+  els.menuSubtitle.textContent = t('menu.subtitle');
+  els.loadBtn.textContent = els.hasSave
+    ? t('menu.loadNight', { n: state.night })
+    : t('menu.load');
+  els.loadBtn.disabled = !els.hasSave;
+  els.menuStatus.textContent = state.progress.gameComplete
     ? t(state.flags.ending === 'good' ? 'minigame.ending.good' : 'minigame.ending.bad')
-    : continuing ? t('ui.continueNight', { n: state.night }) : t('ui.headphones');
-  els.startBtn.textContent = state.progress.gameComplete
-    ? t('ui.newGame')
-    : continuing ? t('ui.continue') : t('ui.startShift');
-  els.newGameBtn.hidden = !continuing || state.progress.gameComplete;
+    : hasProgress ? t('ui.continueNight', { n: state.night }) : t('ui.headphones');
+}
+
+function persistSettings() {
+  try {
+    localStorage.setItem('kontorka.settings.v1', JSON.stringify(els.settings));
+  } catch (e) {
+    console.warn('settings: не удалось сохранить настройки', e);
+  }
 }
 
 export function mount(rootEl, ctx) {
@@ -619,57 +661,182 @@ export function mount(rootEl, ctx) {
 
   els.scare = buildScare(root);
 
-  // Стартовый экран
-  els.start = el('div', 'start-screen', root);
-  els.startTitle = el('h1', 'start-title', els.start);
-  els.startHint = el('p', 'start-hint', els.start);
-  els.startHint.textContent = t('ui.headphones');
-  els.startBtn = el('button', 'start-btn', els.start);
-  els.startBtn.type = 'button';
-  els.startBtn.dataset.noUiClick = 'true';
-  els.startBtn.textContent = t('ui.startShift');
-  els.newGameBtn = el('button', 'start-btn start-btn--ghost', els.start);
+  // Главное меню. Фоновая сцена временная и будет заменена готовым артом.
+  els.menu = el('section', 'main-menu', root);
+  els.stage.inert = true;
+  els.menu.setAttribute('aria-label', t('menu.title'));
+  const menuBackdrop = el('div', 'menu-backdrop', els.menu);
+  const menuImage = el('img', 'menu-background', menuBackdrop);
+  menuImage.src = 'assets/img/menu/menu_background.jpeg';
+  menuImage.alt = '';
+  menuImage.draggable = false;
+  el('div', 'menu-haze', menuBackdrop);
+  el('div', 'menu-effects', menuBackdrop);
+  const menuPanel = el('div', 'menu-panel', els.menu);
+  els.hasSave = ctx.hasSave;
+  els.menuMain = el('div', 'menu-main', menuPanel);
+  els.menuTitle = el('h1', 'menu-title', els.menuMain);
+  els.menuSubtitle = el('p', 'menu-subtitle', els.menuMain);
+  els.menuNotice = el('p', 'menu-notice', els.menuMain);
+  els.menuStatus = el('p', 'menu-status', els.menuMain);
+  const menuActions = el('div', 'menu-actions', els.menuMain);
+  els.newGameBtn = el('button', 'menu-button menu-button--primary', menuActions);
   els.newGameBtn.type = 'button';
   els.newGameBtn.dataset.noUiClick = 'true';
-  els.newGameBtn.textContent = t('ui.newGame');
-  els.newGameBtn.hidden = true;
-  syncMenu(state, t);
+  els.newGameBtn.textContent = t('menu.newGame');
+  els.loadBtn = el('button', 'menu-button', menuActions);
+  els.loadBtn.type = 'button';
+  els.loadBtn.dataset.noUiClick = 'true';
+  els.settingsBtn = el('button', 'menu-button menu-button--quiet', menuActions);
+  els.settingsBtn.type = 'button';
+  els.settingsBtn.dataset.noUiClick = 'true';
+  els.settingsBtn.textContent = t('menu.settings');
 
-  // Полный экран: на Android Chrome кнопка убирает панели браузера; на iPhone Safari API нет,
-  // там показываем подсказку про запуск с главного экрана (manifest + мета-теги в index.html).
+  els.settingsPanel = el('div', 'menu-settings', menuPanel);
+  els.settingsPanel.hidden = true;
+  const settingsTitle = el('h2', 'menu-settings-title', els.settingsPanel);
+  settingsTitle.textContent = t('menu.settings');
+  const settingsForm = el('div', 'menu-settings-form', els.settingsPanel);
+  els.settings = { ...ctx.settings };
+
+  const volumeLabel = el('label', 'menu-setting', settingsForm);
+  const volumeText = el('span', '', volumeLabel);
+  volumeText.textContent = t('menu.volume');
+  const volumeControl = el('div', 'menu-volume-control', volumeLabel);
+  els.volumeSlider = el('input', 'menu-range', volumeControl);
+  els.volumeSlider.type = 'range';
+  els.volumeSlider.min = '0';
+  els.volumeSlider.max = '1';
+  els.volumeSlider.step = '0.01';
+  els.volumeSlider.value = String(els.settings.volume);
+  els.volumeSlider.setAttribute('aria-label', t('menu.volume'));
+  els.volumeValue = el('output', 'menu-volume-value', volumeControl);
+  els.volumeValue.textContent = `${Math.round(els.settings.volume * 100)}%`;
+
+  const languageLabel = el('label', 'menu-setting', settingsForm);
+  const languageText = el('span', '', languageLabel);
+  languageText.textContent = t('menu.language');
+  els.languageSelect = el('select', 'menu-select', languageLabel);
+  for (const [value, key] of [['ru', 'menu.language.ru'], ['de', 'menu.language.de']]) {
+    const option = el('option', '', els.languageSelect);
+    option.value = value;
+    option.textContent = t(key);
+  }
+  els.languageSelect.value = els.settings.language;
+
+  els.menuFsBtn = el('button', 'menu-button menu-button--quiet', els.settingsPanel);
+  els.menuFsBtn.type = 'button';
+  els.menuFsBtn.dataset.noUiClick = 'true';
+  els.menuFsBtn.textContent = t('ui.fullscreen');
   const docEl = document.documentElement;
   const reqFs = docEl.requestFullscreen || docEl.webkitRequestFullscreen;
-  const standalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
-  if (!standalone) {
-    if (reqFs) {
-      els.fsBtn = el('button', 'start-btn start-btn--ghost', els.start);
-      els.fsBtn.type = 'button';
-      els.fsBtn.textContent = t('ui.fullscreen');
-      els.fsBtn.addEventListener('pointerup', async (e) => {
-        if (e.button > 0) return;
-        try {
-          await reqFs.call(docEl, { navigationUI: 'hide' });
-          await screen.orientation?.lock?.('landscape').catch(() => {});
-        } catch (err) { console.warn('fullscreen:', err); }
-      });
-      const syncFs = () => { els.fsBtn.hidden = !!(document.fullscreenElement || document.webkitFullscreenElement); };
-      document.addEventListener('fullscreenchange', syncFs);
-      document.addEventListener('webkitfullscreenchange', syncFs);
-    } else {
-      els.fsHint = el('p', 'start-hint start-hint--small', els.start);
-      els.fsHint.textContent = t('ui.addToHome');
-    }
+  if (!reqFs || window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true) {
+    els.menuFsBtn.hidden = true;
+  } else {
+    els.menuFsBtn.addEventListener('pointerup', async (event) => {
+      if (event.button > 0) return;
+      try {
+        await reqFs.call(docEl, { navigationUI: 'hide' });
+        await window.screen.orientation?.lock?.('landscape').catch(() => {});
+      } catch (err) { console.warn('fullscreen:', err); }
+    });
   }
+  els.backBtn = el('button', 'menu-button menu-button--quiet', els.settingsPanel);
+  els.backBtn.type = 'button';
+  els.backBtn.dataset.noUiClick = 'true';
+  els.backBtn.textContent = t('menu.back');
 
-  // pointerup от касания — это жест, после которого браузер разрешает звук.
-  els.startBtn.addEventListener('pointerup', (e) => {
-    if (e.button > 0) return;
-    if (state.progress.gameComplete) emit('intent:newGame');
-    else emit('intent:startShift');
-  });
-  els.newGameBtn.addEventListener('pointerup', (e) => {
-    if (e.button > 0) return;
+  els.pauseScreen = el('section', 'pause-screen', root);
+  els.pauseScreen.hidden = true;
+  els.pauseScreen.setAttribute('role', 'dialog');
+  els.pauseScreen.setAttribute('aria-modal', 'true');
+  els.pauseScreen.setAttribute('aria-label', t('menu.pause.title'));
+  const pauseImage = el('img', 'pause-background', els.pauseScreen);
+  pauseImage.src = 'assets/img/menu/pause_background.jpeg';
+  pauseImage.alt = '';
+  pauseImage.draggable = false;
+  el('div', 'pause-effects', els.pauseScreen);
+  const pausePanel = el('div', 'pause-panel', els.pauseScreen);
+  const pauseTitle = el('h1', 'menu-title pause-title', pausePanel);
+  pauseTitle.textContent = t('menu.pause.title');
+  const pauseActions = el('div', 'menu-actions', pausePanel);
+  els.pauseResumeBtn = el('button', 'menu-button menu-button--primary', pauseActions);
+  els.pauseResumeBtn.type = 'button';
+  els.pauseResumeBtn.dataset.noUiClick = 'true';
+  els.pauseResumeBtn.textContent = t('menu.pause.resume');
+  els.pauseSettingsBtn = el('button', 'menu-button menu-button--quiet', pauseActions);
+  els.pauseSettingsBtn.type = 'button';
+  els.pauseSettingsBtn.dataset.noUiClick = 'true';
+  els.pauseSettingsBtn.textContent = t('menu.settings');
+  els.pauseMainMenuBtn = el('button', 'menu-button menu-button--quiet', pauseActions);
+  els.pauseMainMenuBtn.type = 'button';
+  els.pauseMainMenuBtn.dataset.noUiClick = 'true';
+  els.pauseMainMenuBtn.textContent = t('menu.pause.mainMenu');
+  els.paused = false;
+  els.settingsReturn = 'main';
+
+  const handleEscape = (event) => {
+    if (event.key !== 'Escape' || event.repeat) return;
+    if (event.target?.closest?.('input, select, textarea, [contenteditable="true"]')) return;
+    if (!els.settingsPanel.hidden) {
+      event.preventDefault();
+      if (els.settingsReturn === 'pause') showPauseMenu();
+      else showMainMenu(ctx);
+      return;
+    }
+    if (els.paused) {
+      event.preventDefault();
+      emit('intent:resumeGame');
+    } else if (state.running || els.gameActive) {
+      event.preventDefault();
+      emit('intent:pauseGame');
+    }
+  };
+  els.handleEscape = handleEscape;
+  window.addEventListener('keydown', handleEscape);
+  syncMenu(state, t);
+
+  els.newGameBtn.addEventListener('pointerup', (event) => {
+    if (event.button > 0) return;
+    audio.init();
     emit('intent:newGame');
+  });
+  els.loadBtn.addEventListener('pointerup', (event) => {
+    if (event.button > 0 || els.loadBtn.disabled) return;
+    audio.init();
+    emit('intent:loadGame');
+  });
+  els.settingsBtn.addEventListener('pointerup', (event) => {
+    if (event.button > 0) return;
+    showSettings('main');
+  });
+  els.backBtn.addEventListener('pointerup', (event) => {
+    if (event.button > 0) return;
+    if (els.settingsReturn === 'pause') showPauseMenu();
+    else showMainMenu(ctx);
+  });
+  els.pauseResumeBtn.addEventListener('pointerup', (event) => {
+    if (event.button > 0) return;
+    emit('intent:resumeGame');
+  });
+  els.pauseSettingsBtn.addEventListener('pointerup', (event) => {
+    if (event.button > 0) return;
+    showSettings('pause');
+  });
+  els.pauseMainMenuBtn.addEventListener('pointerup', (event) => {
+    if (event.button > 0) return;
+    emit('intent:returnMainMenu');
+  });
+  els.volumeSlider.addEventListener('input', () => {
+    els.settings.volume = Number(els.volumeSlider.value);
+    els.volumeValue.textContent = `${Math.round(els.settings.volume * 100)}%`;
+    audio.setMasterVolume(els.settings.volume);
+    persistSettings();
+  });
+  els.languageSelect.addEventListener('change', () => {
+    els.settings.language = els.languageSelect.value;
+    persistSettings();
+    window.location.reload();
   });
 
   // Подсказка поворота (показывается CSS-ом в портретной ориентации)
@@ -711,6 +878,10 @@ export function mount(rootEl, ctx) {
     on('camera:open', syncCam),
     on('camera:close', syncCam),
     on('night:start', () => {
+      els.gameActive = true;
+      els.stage.inert = false;
+      els.pauseScreen.hidden = true;
+      els.paused = false;
       resetShutdown();
       resetScare();
       shownText = '';
@@ -720,13 +891,30 @@ export function mount(rootEl, ctx) {
       els.glitchSilhouette.hidden = true;
       renderClock(state);
       syncCam();
-      els.start.hidden = true;
+      els.menu.hidden = true;
     }),
+    on('game:paused', showPauseMenu),
+    on('game:resumed', () => {
+      els.stage.inert = false;
+      const minigameScreen = document.querySelector('.mg-screen');
+      if (minigameScreen) minigameScreen.inert = false;
+      els.pauseScreen.hidden = true;
+      els.paused = false;
+    }),
+    on('game:menu', () => showMainMenu(ctx)),
+    on('minigame:start', () => { els.gameActive = true; }),
+    on('minigame:close', () => { els.gameActive = false; }),
+    on('ending:show', () => { els.gameActive = false; }),
     on('minigame:close', () => showStart('ui.title', ctx)),
+    on('save:change', ({ available }) => {
+      els.hasSave = available;
+      syncMenu(state, t);
+    }),
   ];
 }
 
 export function unmount() {
+  if (els.handleEscape) window.removeEventListener('keydown', els.handleEscape);
   els.resizeObserver?.disconnect();
   offs.forEach((off) => off());
   offs = [];

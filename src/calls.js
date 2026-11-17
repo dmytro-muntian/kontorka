@@ -136,3 +136,4 @@ on('night:start', () => {
   started = new Set();
 });
 on('night:end', () => endPhone('hungup', { silent: true }));
+on('game:exit', () => endPhone('hungup', { silent: true }));

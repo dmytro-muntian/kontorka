@@ -13,7 +13,10 @@
       "requests": [
         {
           "id": "n1-access",
-          "durationSec": 8,
+          "senderKey": "minigame.sender.learning",
+          "roleKey": "minigame.role.hr",
+          "detailKey": "minigame.detail.n1.access",
+          "durationSec": 24,
           "promptKey": "minigame.n1.q1",
           "options": [
             { "id": "deny", "labelKey": "minigame.n1.q1a" },
@@ -23,7 +26,10 @@
         },
         {
           "id": "n1-decoy",
-          "durationSec": 6,
+          "senderKey": "minigame.sender.office",
+          "roleKey": "minigame.role.office",
+          "detailKey": "minigame.detail.n1.decoy",
+          "durationSec": 20,
           "decoy": true,
           "promptKey": "minigame.n1.q2",
           "options": [
@@ -34,7 +40,10 @@
         },
         {
           "id": "n1-privacy",
-          "durationSec": 8,
+          "senderKey": "minigame.sender.ai",
+          "roleKey": "minigame.role.automation",
+          "detailKey": "minigame.detail.n1.privacy",
+          "durationSec": 26,
           "promptKey": "minigame.n1.q3",
           "options": [
             { "id": "approve", "labelKey": "minigame.n1.q3a" },
@@ -51,7 +60,10 @@
       "requests": [
         {
           "id": "n2-training",
-          "durationSec": 8,
+          "senderKey": "minigame.sender.learning",
+          "roleKey": "minigame.role.management",
+          "detailKey": "minigame.detail.n2.training",
+          "durationSec": 22,
           "promptKey": "minigame.n2.q1",
           "options": [
             { "id": "approve", "labelKey": "minigame.n2.q1a" },
@@ -61,7 +73,10 @@
         },
         {
           "id": "n2-decoy",
-          "durationSec": 6,
+          "senderKey": "minigame.sender.office",
+          "roleKey": "minigame.role.office",
+          "detailKey": "minigame.detail.n2.decoy",
+          "durationSec": 20,
           "decoy": true,
           "promptKey": "minigame.n2.q2",
           "options": [
@@ -72,7 +87,10 @@
         },
         {
           "id": "n2-export",
-          "durationSec": 9,
+          "senderKey": "minigame.sender.ai",
+          "roleKey": "minigame.role.automation",
+          "detailKey": "minigame.detail.n2.export",
+          "durationSec": 27,
           "promptKey": "minigame.n2.q3",
           "options": [
             { "id": "approve", "labelKey": "minigame.n2.q3a" },
@@ -89,7 +107,10 @@
       "requests": [
         {
           "id": "n3-backup",
-          "durationSec": 8,
+          "senderKey": "minigame.sender.learning",
+          "roleKey": "minigame.role.automation",
+          "detailKey": "minigame.detail.n3.backup",
+          "durationSec": 23,
           "promptKey": "minigame.n3.q1",
           "options": [
             { "id": "approve", "labelKey": "minigame.n3.q1a" },
@@ -99,7 +120,10 @@
         },
         {
           "id": "n3-idle",
-          "durationSec": 7,
+          "senderKey": "minigame.sender.unknown",
+          "roleKey": "minigame.role.unknown",
+          "detailKey": "minigame.detail.n3.idle",
+          "durationSec": 25,
           "promptKey": "minigame.n3.q2",
           "idleCorrect": true,
           "options": [
@@ -110,7 +134,10 @@
         },
         {
           "id": "n3-audit",
-          "durationSec": 9,
+          "senderKey": "minigame.sender.security",
+          "roleKey": "minigame.role.security",
+          "detailKey": "minigame.detail.n3.audit",
+          "durationSec": 29,
           "promptKey": "minigame.n3.q3",
           "options": [
             { "id": "approve", "labelKey": "minigame.n3.q3a" },
@@ -127,7 +154,10 @@
       "requests": [
         {
           "id": "n4-mind",
-          "durationSec": 8,
+          "senderKey": "minigame.sender.management",
+          "roleKey": "minigame.role.management",
+          "detailKey": "minigame.detail.n4.mind",
+          "durationSec": 24,
           "promptKey": "minigame.n4.q1",
           "options": [
             { "id": "approve", "labelKey": "minigame.n4.q1a" },
@@ -137,7 +167,10 @@
         },
         {
           "id": "n4-live",
-          "durationSec": 10,
+          "senderKey": "minigame.sender.security",
+          "roleKey": "minigame.role.security",
+          "detailKey": "minigame.detail.n4.live",
+          "durationSec": 28,
           "promptKey": "minigame.n4.q2",
           "options": [
             { "id": "approve", "labelKey": "minigame.n4.q2a" },
@@ -147,7 +180,10 @@
         },
         {
           "id": "n4-purge",
-          "durationSec": 9,
+          "senderKey": "minigame.sender.unknown",
+          "roleKey": "minigame.role.unknown",
+          "detailKey": "minigame.detail.n4.purge",
+          "durationSec": 26,
           "promptKey": "minigame.n4.q3",
           "options": [
             { "id": "erase", "labelKey": "minigame.n4.q3a" },
@@ -164,7 +200,10 @@
       "requests": [
         {
           "id": "n5-stop",
-          "durationSec": 8,
+          "senderKey": "minigame.sender.ai",
+          "roleKey": "minigame.role.automation",
+          "detailKey": "minigame.detail.n5.stop",
+          "durationSec": 22,
           "promptKey": "minigame.n5.q1",
           "options": [
             { "id": "stop", "labelKey": "minigame.n5.q1a" },
@@ -174,7 +213,10 @@
         },
         {
           "id": "n5-evacuate",
-          "durationSec": 10,
+          "senderKey": "minigame.sender.security",
+          "roleKey": "minigame.role.security",
+          "detailKey": "minigame.detail.n5.evacuate",
+          "durationSec": 30,
           "promptKey": "minigame.n5.q2",
           "options": [
             { "id": "stay", "labelKey": "minigame.n5.q2a" },
@@ -184,7 +226,10 @@
         },
         {
           "id": "n5-publish",
-          "durationSec": 9,
+          "senderKey": "minigame.sender.security",
+          "roleKey": "minigame.role.security",
+          "detailKey": "minigame.detail.n5.publish",
+          "durationSec": 27,
           "promptKey": "minigame.n5.q3",
           "options": [
             { "id": "hide", "labelKey": "minigame.n5.q3a" },
