@@ -949,8 +949,15 @@
     // Тексты: встроенный русский запасной вариант, поверх него словарь i18n (ключи disclaimer.*), если он есть.
     (async () => {
       try {
-        let lang = 'ru';
-        try { lang = (JSON.parse(localStorage.getItem('kontorka.settings.v1') || '{}').lang) || 'ru'; } catch (e) {}
+        let settings = {};
+        try { settings = JSON.parse(localStorage.getItem('kontorka.settings.v1') || '{}'); } catch (e) {}
+        const languageAuto = settings.languageAuto === true
+          || (settings.languageAuto === undefined && settings.language !== 'de');
+        const languages = navigator.languages?.length ? navigator.languages : [navigator.language];
+        const preferred = languages.find((language) => /^(?:de|ru)(?:-|$)/i.test(language));
+        const deviceLanguage = preferred?.toLowerCase().startsWith('de') ? 'de' : 'ru';
+        const lang = languageAuto ? deviceLanguage : (settings.language === 'de' ? 'de' : 'ru');
+        root.lang = lang;
         const dicts = [];
         for (const l of lang === 'ru' ? ['ru'] : ['ru', lang]) {
           try { const r = await fetch('i18n/' + l + '.json'); if (r.ok) dicts.push(await r.json()); } catch (e) {}

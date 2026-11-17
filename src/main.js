@@ -20,6 +20,12 @@ const MAX_DT = 0.1; // секунды
 const NIGHT_SEC = 360;
 const SETTINGS_KEY = 'kontorka.settings.v1';
 
+function detectDeviceLanguage() {
+  const languages = navigator.languages?.length ? navigator.languages : [navigator.language];
+  const preferred = languages.find((language) => /^(?:de|ru)(?:-|$)/i.test(language));
+  return preferred?.toLowerCase().startsWith('de') ? 'de' : 'ru';
+}
+
 let last = null;
 let lastHour = 0;
 let gamePaused = false;
@@ -587,11 +593,16 @@ async function loadJSON(path) {
 }
 
 async function boot() {
-  let settings = { language: 'ru', volume: 0.8 };
+  let settings = { language: detectDeviceLanguage(), languageAuto: true, volume: 0.8 };
   try {
     const stored = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
+    const languageAuto = stored.languageAuto === true
+      || (stored.languageAuto === undefined && stored.language !== 'de');
     settings = {
-      language: stored.language === 'de' ? 'de' : 'ru',
+      language: languageAuto
+        ? detectDeviceLanguage()
+        : (stored.language === 'de' ? 'de' : 'ru'),
+      languageAuto,
       volume: Number.isFinite(stored.volume) ? Math.max(0, Math.min(1, stored.volume)) : 0.8,
     };
   } catch (e) {

@@ -611,6 +611,13 @@ let root = null;
 let offs = [];
 let els = {};
 let shownText = '';
+let menuAudioUnlocked = false;
+
+window.addEventListener('kontorka:disclaimer-accepted', () => {
+  menuAudioUnlocked = true;
+  if (!els.menu) return;
+  startMenuMusic();
+});
 
 function el(tag, className, parent) {
   const e = document.createElement(tag);
@@ -1011,10 +1018,10 @@ function updateScare(dt, ctx) {
 }
 
 // ---------- музыка главного меню ----------
-// Браузер разрешает звук только после касания: музыка стартует с первого касания на экране меню.
+// Браузер разрешает звук после подтверждения дисклеймера или касания на меню.
 // Играет через audio.play (петля «в голове»), на старте смены гасится.
 function startMenuMusic() {
-  if (!els.menuMusicUnlocked || els.menuMusic || !els.menu || els.menu.hidden) return;
+  if (!menuAudioUnlocked || els.menuMusic || !els.menu || els.menu.hidden) return;
   audio.init();   // снимает ручную паузу звука (возврат в меню из паузы)
   els.menuMusic = audio.play('amb_menu', { loop: true }) || null;
 }
@@ -1170,7 +1177,7 @@ export function mount(rootEl, ctx) {
     window.addEventListener('resize', layoutMenuArt);
   }
   els.menu.addEventListener('pointerdown', () => {
-    els.menuMusicUnlocked = true;
+    menuAudioUnlocked = true;
     audio.init();
     startMenuMusic();
   });
@@ -1337,6 +1344,7 @@ export function mount(rootEl, ctx) {
   });
   els.languageSelect.addEventListener('change', () => {
     els.settings.language = els.languageSelect.value;
+    els.settings.languageAuto = false;
     persistSettings();
     window.location.reload();
   });
@@ -1414,6 +1422,7 @@ export function mount(rootEl, ctx) {
       syncMenu(state, t);
     }),
   ];
+  if (menuAudioUnlocked) startMenuMusic();
 }
 
 export function unmount() {
