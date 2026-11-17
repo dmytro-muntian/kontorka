@@ -868,10 +868,123 @@
     @media (orientation: portrait) {
       .rotate-hint { display: flex; }
     }
+  
+    /* ---------- дисклеймер при входе ---------- */
+    .disclaimer { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center;
+      padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+      box-sizing: border-box; overflow-y: auto; background: radial-gradient(ellipse at center, #0b100e 0%, #020303 100%);
+      color: #e6f2ea; font-family: "Cascadia Mono", Consolas, "SF Mono", Menlo, "Roboto Mono", "Courier New", ui-monospace, monospace;
+      transition: opacity 0.35s ease; }
+    .disclaimer[hidden] { display: none; }
+    .disclaimer.is-leaving { opacity: 0; pointer-events: none; }
+    .disclaimer::after { content: ''; position: absolute; inset: 0; pointer-events: none;
+      background: repeating-linear-gradient(to bottom, rgba(255,255,255,0.025) 0, rgba(255,255,255,0.025) 1px, transparent 1px, transparent 3px); }
+    .dc-box { position: relative; z-index: 1; width: min(100%, 860px); margin: auto; box-sizing: border-box; padding: clamp(14px, 3vh, 30px) clamp(16px, 3vw, 34px);
+      border: 1px solid rgba(143,240,192,0.4); background: rgba(5,9,7,0.88); box-shadow: 0 0 40px rgba(143,240,192,0.08); }
+    .dc-title { margin: 0 0 clamp(8px, 2vh, 18px); color: #ff5d5d; font-size: clamp(1.15rem, 3.2vh, 1.7rem); font-weight: 800; letter-spacing: 0.14em;
+      text-transform: uppercase; text-shadow: 0 0 14px rgba(255,60,60,0.45); }
+    .dc-cols { display: grid; grid-template-columns: 1fr 1fr; gap: clamp(12px, 3vw, 32px); }
+    .dc-head { margin: 0 0 6px; color: #8ff0c0; font-size: 0.78rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
+    .dc-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 7px; }
+    .dc-list li { position: relative; padding-left: 1.2em; font-size: clamp(0.8rem, 2.4vh, 0.95rem); line-height: 1.45; color: #d3e2d9; }
+    .dc-list li::before { content: '>'; position: absolute; left: 0; color: #8ff0c0; }
+    .dc-list--risk li::before { content: '!'; color: #ff5d5d; }
+    .dc-note { margin: clamp(8px, 2vh, 16px) 0 0; color: #6fa58b; font-size: 0.74rem; line-height: 1.4; }
+    .dc-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: clamp(10px, 2.4vh, 20px); }
+    .dc-btn { min-height: 48px; padding: 0.55rem 1.4rem; border: 1px solid rgba(143,240,192,0.55); border-radius: 0; background: transparent;
+      color: #e6f2ea; font: inherit; font-size: 0.95rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; cursor: pointer; touch-action: manipulation; }
+    .dc-btn--primary { min-width: 9rem; background: rgba(143,240,192,0.14); color: #f3fff8; }
+    .dc-btn:focus-visible, .dc-btn:active { outline: none; background: rgba(143,240,192,0.28); color: #8ff0c0; }
+    .dc-btn[hidden] { display: none; }
+    @media (hover: hover) { .dc-btn:hover { background: rgba(143,240,192,0.28); color: #8ff0c0; } }
+    @media (max-width: 700px) { .dc-cols { grid-template-columns: 1fr; } }
+    @media (max-height: 420px) {
+      .dc-list { gap: 4px; } .dc-list li { font-size: 0.74rem; line-height: 1.3; } .dc-note { display: none; }
+      .dc-btn { min-height: 42px; }
+    }
+    @media (prefers-reduced-motion: reduce) { .disclaimer { transition: none; } }
   </style>
 </head>
 <body>
   <div id="app"></div>
   <script type="module" src="src/main.js"></script>
+
+  <div id="disclaimer" class="disclaimer" role="dialog" aria-modal="true" aria-labelledby="dc-title">
+    <div class="dc-box">
+      <h1 id="dc-title" class="dc-title" data-i18n="disclaimer.title">Предупреждение</h1>
+      <div class="dc-cols">
+        <section>
+          <h2 class="dc-head" data-i18n="disclaimer.risksHead">Риски</h2>
+          <ul class="dc-list dc-list--risk">
+            <li data-i18n="disclaimer.risk.scare">Это хоррор: внезапные скримеры, резкие громкие звуки, тревожная атмосфера.</li>
+            <li data-i18n="disclaimer.risk.flash">В игре есть мигающий свет, помехи и вспышки на экране. Они могут вызвать приступ у людей с фоточувствительной эпилепсией.</li>
+            <li data-i18n="disclaimer.risk.health">Если вы легко пугаетесь или у вас проблемы с сердцем, подумайте, стоит ли играть. При плохом самочувствии сделайте перерыв.</li>
+            <li data-i18n="disclaimer.risk.fiction">Все персонажи и события вымышлены.</li>
+          </ul>
+        </section>
+        <section>
+          <h2 class="dc-head" data-i18n="disclaimer.tipsHead">Как лучше играть</h2>
+          <ul class="dc-list">
+            <li data-i18n="disclaimer.tip.headphones">Играйте в наушниках: звук главный источник информации (шаги, стук, звонки).</li>
+            <li data-i18n="disclaimer.tip.fullscreen">Включите полноэкранный режим, так игра выглядит как задумано.</li>
+            <li data-i18n="disclaimer.tip.rotate">На телефоне держите экран горизонтально.</li>
+            <li id="dc-ios" hidden data-i18n="disclaimer.tip.ios">На iPhone: «Поделиться» → «На экран Домой», тогда игра откроется без полос браузера.</li>
+          </ul>
+        </section>
+      </div>
+      <p class="dc-note" data-i18n="disclaimer.note">Нажимая «ОК», вы подтверждаете, что прочитали предупреждение, и включаете звук игры.</p>
+      <div class="dc-actions">
+        <button id="dc-ok" class="dc-btn dc-btn--primary" type="button" data-i18n="disclaimer.ok">ОК</button>
+        <button id="dc-fs" class="dc-btn" type="button" hidden data-i18n="disclaimer.fullscreen">Во весь экран</button>
+      </div>
+    </div>
+  </div>
+  <script type="module">
+    // Дисклеймер: клик по «ОК» это первое касание, которое разблокирует звук.
+    const box = document.getElementById('disclaimer');
+    const okBtn = document.getElementById('dc-ok');
+    const fsBtn = document.getElementById('dc-fs');
+    const root = document.documentElement;
+
+    // Тексты: встроенный русский запасной вариант, поверх него словарь i18n (ключи disclaimer.*), если он есть.
+    (async () => {
+      try {
+        let lang = 'ru';
+        try { lang = (JSON.parse(localStorage.getItem('kontorka.settings.v1') || '{}').lang) || 'ru'; } catch (e) {}
+        const dicts = [];
+        for (const l of lang === 'ru' ? ['ru'] : ['ru', lang]) {
+          try { const r = await fetch('i18n/' + l + '.json'); if (r.ok) dicts.push(await r.json()); } catch (e) {}
+        }
+        const dict = Object.assign({}, ...dicts);
+        box.querySelectorAll('[data-i18n]').forEach((el) => { const v = dict[el.dataset.i18n]; if (typeof v === 'string') el.textContent = v; });
+      } catch (e) {}
+    })();
+
+    // Подгружаем audio.js заранее, чтобы в обработчике клика вызвать init() синхронно (Safari требует жест).
+    let audioMod = null;
+    import('./src/audio.js').then((m) => { audioMod = m; }).catch((e) => console.warn('[disclaimer] audio.js:', e));
+
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    const canFs = !!(root.requestFullscreen || root.webkitRequestFullscreen);
+    if (canFs && !isIOS) fsBtn.hidden = false;
+    if (isIOS) document.getElementById('dc-ios').hidden = false;
+
+    const inFs = () => !!(document.fullscreenElement || document.webkitFullscreenElement);
+    fsBtn.addEventListener('click', () => {
+      try {
+        if (inFs()) (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+        else (root.requestFullscreen || root.webkitRequestFullscreen).call(root, { navigationUI: 'hide' });
+      } catch (e) {}
+    });
+
+    function accept() {
+      try { if (audioMod) { audioMod.init && audioMod.init(); const c = audioMod.getContext && audioMod.getContext(); if (c && c.resume) c.resume(); } } catch (e) { console.warn('[disclaimer] audio init:', e); }
+      window.dispatchEvent(new CustomEvent('kontorka:disclaimer-accepted'));
+      box.classList.add('is-leaving');
+      setTimeout(() => box.remove(), 400);
+    }
+    okBtn.addEventListener('click', accept);
+    okBtn.focus({ preventScroll: true });
+  </script>
 </body>
 </html>
