@@ -223,6 +223,8 @@ function mfxBuildTex(fx, img) {
   } catch (e) {
     console.warn('menu: не удалось подготовить текстуру монитора (нужен запуск через сервер)', e);
     m.tex = null;
+    m.c.hidden = true;
+    if (els.menuGlow) els.menuGlow.hidden = true;
   }
 }
 
@@ -302,6 +304,7 @@ function mfxTickMonitor(fx, dtMs, burst, type) {
   const { cx, W, H, tex } = m;
   cx.globalCompositeOperation = 'source-over';
   cx.globalAlpha = 1;
+  cx.clearRect(0, 0, W, H);
 
   // вертикальный срыв кадров (roll)
   let rollY = 0;
@@ -612,6 +615,9 @@ let offs = [];
 let els = {};
 let shownText = '';
 let menuAudioUnlocked = false;
+let pauseMusic = null;
+let tokensDashTtl = 0;
+let clockShiftRemaining = 0;
 
 window.addEventListener('kontorka:disclaimer-accepted', () => {
   menuAudioUnlocked = true;
@@ -1010,7 +1016,7 @@ function updateScare(dt, ctx) {
   sc.t += dt;
   if (sc.t >= SCARE_END) {
     resetScare();
-    showStart('ui.shiftFailed', ctx);
+    showShiftFailed(ctx);
     return;
   }
   sc.root.dataset.phase = sc.t < SCARE_FLASH ? 'flash' : sc.t < SCARE_CUT_AT ? 'show' : 'black';
@@ -1021,8 +1027,9 @@ function updateScare(dt, ctx) {
 // Браузер разрешает звук после подтверждения дисклеймера или касания на меню.
 // Играет через audio.play (петля «в голове»), на старте смены гасится.
 function startMenuMusic() {
-  if (!menuAudioUnlocked || els.menuMusic || !els.menu || els.menu.hidden) return;
-  audio.init();   // снимает ручную паузу звука (возврат в меню из паузы)
+  if (!menuAudioUnlocked || els.menuMusic || !els.menu || els.menu.hidden
+    || els.menu.classList.contains('is-pause-settings')) return;
+  audio.init();   // создаёт контекст при первом показе меню
   els.menuMusic = audio.play('amb_menu', { loop: true }) || null;
 }
 
@@ -1031,28 +1038,61 @@ function stopMenuMusic() {
   els.menuMusic = null;
 }
 
+function startPauseMusic() {
+  if (!menuAudioUnlocked || pauseMusic) return;
+  pauseMusic = audio.play('amb_menu', { loop: true, volume: 0.65, allowPaused: true }) || null;
+}
+
+function stopPauseMusic() {
+  if (pauseMusic) audio.stop?.(pauseMusic);
+  pauseMusic = null;
+}
+
 function showStart(titleKey, ctx) {
   els.menuNotice.textContent = titleKey === 'ui.shiftFailed' ? ctx.t(titleKey) : '';
   showMainMenu(ctx);
 }
 
+function updatePauseButton() {
+  if (els.pauseButton) els.pauseButton.hidden = !els.gameActive || els.paused;
+}
+
+function showShiftFailed(ctx) {
+  els.gameActive = false;
+  els.stage.inert = true;
+  document.querySelector('.mg-screen')?.setAttribute('inert', '');
+  els.menu.hidden = true;
+  els.pauseScreen.hidden = true;
+  els.failedTitle.textContent = ctx.t('ui.shiftFailed');
+  els.failedTitle.dataset.text = ctx.t('ui.shiftFailed');
+  els.failedButton.textContent = ctx.t('ui.failed.menu');
+  els.failedScreen.hidden = false;
+  updatePauseButton();
+  els.failedButton.focus();
+}
+
 function showMainMenu(ctx) {
+  stopPauseMusic();
+  audio.setPaused(false);
   els.gameActive = false;
   els.stage.inert = true;
   document.querySelector('.mg-screen')?.setAttribute('inert', '');
   els.menu.style.zIndex = '';
   els.menu.classList.remove('is-pause-settings');
   els.pauseScreen.hidden = true;
+  els.failedScreen.hidden = true;
   els.paused = false;
-  els.gameActive = false;
   els.menu.hidden = false;
   els.settingsPanel.hidden = true;
   els.menuMain.hidden = false;
+  updatePauseButton();
   syncMenu(ctx.state, ctx.t);
   startMenuMusic();
 }
 
 function showPauseMenu() {
+  stopMenuMusic();
+  startPauseMusic();
   els.stage.inert = true;
   els.menu.style.zIndex = '';
   els.menu.classList.remove('is-pause-settings');
@@ -1063,6 +1103,7 @@ function showPauseMenu() {
   els.menu.hidden = true;
   els.paused = true;
   els.pauseScreen.hidden = false;
+  updatePauseButton();
   els.pauseResumeBtn.focus();
 }
 
@@ -1177,6 +1218,7 @@ export function mount(rootEl, ctx) {
     window.addEventListener('resize', layoutMenuArt);
   }
   els.menu.addEventListener('pointerdown', () => {
+    if (els.menu.classList.contains('is-pause-settings')) return;
     menuAudioUnlocked = true;
     audio.init();
     startMenuMusic();
@@ -1281,6 +1323,28 @@ export function mount(rootEl, ctx) {
   els.pauseMainMenuBtn.type = 'button';
   els.pauseMainMenuBtn.dataset.noUiClick = 'true';
   els.pauseMainMenuBtn.textContent = t('menu.pause.mainMenu');
+
+  els.failedScreen = el('section', 'shift-failed', root);
+  els.failedScreen.hidden = true;
+  els.failedScreen.setAttribute('role', 'alertdialog');
+  els.failedScreen.setAttribute('aria-modal', 'true');
+  els.failedTitle = el('h1', 'shift-failed__title', els.failedScreen);
+  els.failedButton = el('button', 'shift-failed__button', els.failedScreen);
+  els.failedButton.type = 'button';
+  els.failedButton.addEventListener('pointerup', (event) => {
+    if (event.button > 0) return;
+    emit('intent:returnMainMenu');
+  });
+  els.failedButton.addEventListener('click', (event) => {
+    if (event.detail === 0) emit('intent:returnMainMenu');
+  });
+
+  els.clockShift = el('div', 'clock-shift', root);
+  els.clockShift.hidden = true;
+  els.clockShift.setAttribute('aria-live', 'polite');
+  els.clockShiftLabel = el('span', 'clock-shift__label', els.clockShift);
+  els.clockShiftTime = el('strong', 'clock-shift__time', els.clockShift);
+
   els.paused = false;
   els.settingsReturn = 'main';
 
@@ -1353,6 +1417,31 @@ export function mount(rootEl, ctx) {
   els.rotate = el('div', 'rotate-hint', root);
   els.rotate.textContent = t('ui.rotateHint');
 
+  els.pauseButton = el('button', 'pause-button', root);
+  els.pauseButton.type = 'button';
+  els.pauseButton.textContent = 'Ⅱ';
+  els.pauseButton.setAttribute('aria-label', t('menu.pause.title'));
+  els.pauseButton.title = t('menu.pause.title');
+  els.pauseButton.hidden = true;
+  els.pauseButton.addEventListener('pointerup', (event) => {
+    if (event.button > 0) return;
+    emit('intent:pauseGame');
+  });
+
+  els.shiftHud = el('div', 'shift-hud', root);
+  els.shiftHud.hidden = true;
+  const tokenRow = el('div', 'shift-hud__row', els.shiftHud);
+  el('span', 'shift-hud__label', tokenRow).textContent = t('ui.hud.tokens');
+  els.hudTokens = el('strong', 'shift-hud__value', tokenRow);
+  const loadRow = el('div', 'shift-hud__row', els.shiftHud);
+  el('span', 'shift-hud__label', loadRow).textContent = t('ui.hud.load');
+  els.hudLoad = el('strong', 'shift-hud__value', loadRow);
+  els.hudLoadBar = el('span', 'shift-hud__bar', els.shiftHud);
+  els.hudLoadSegments = [];
+  for (let i = 0; i < 5; i++) {
+    els.hudLoadSegments.push(el('i', i < 2 ? 'lv-g' : i < 4 ? 'lv-y' : 'lv-r', els.hudLoadBar));
+  }
+
   const syncCam = () => els.stage.classList.toggle('is-cam', state.camera !== null);
   offs = [
     on('tick', ({ dt }) => {
@@ -1363,6 +1452,20 @@ export function mount(rootEl, ctx) {
         els.glitchSilhouette.hidden = els.silhouetteTime <= 0;
       }
       renderClock(state);
+      els.shiftHud.hidden = !state.running;
+      if (state.running) {
+        els.hudTokens.textContent = tokensDashTtl > 0 ? '—' : `${Math.ceil(state.tokens)}%`;
+        const load = Math.round(state.load * 10) / 10;
+        els.hudLoad.textContent = `${load} / 5`;
+        els.hudLoad.classList.toggle('is-over', state.load >= 5);
+        const lit = Math.min(5, Math.max(0, Math.round(state.load)));
+        els.hudLoadSegments.forEach((segment, i) => segment.classList.toggle('is-lit', i < lit));
+      }
+      if (tokensDashTtl > 0) tokensDashTtl = Math.max(0, tokensDashTtl - dt);
+      if (clockShiftRemaining > 0) {
+        clockShiftRemaining = Math.max(0, clockShiftRemaining - dt);
+        els.clockShift.hidden = clockShiftRemaining === 0;
+      }
       updateTension(state);
       els.flickWin(dt, state.running);
       els.flickSpill(dt, state.running && state.tokens > 0 && state.load >= 5);
@@ -1371,6 +1474,16 @@ export function mount(rootEl, ctx) {
       else if (state.tokens > 0 && els.sd.t >= 0) resetShutdown();
       updateShutdown(dt);
       updateScare(dt, ctx);
+    }),
+    on('clock:hour', ({ hour }) => {
+      if (hour < 1 || hour > 6) return;
+      const from = (hour - 1) % 12 || 12;
+      const to = hour % 12 || 12;
+      els.clockShiftLabel.textContent = ctx.t(hour === 6 ? 'ui.hourShift.final' : 'ui.hourShift.label');
+      els.clockShiftTime.textContent = `${String(from).padStart(2, '0')}:00  →  ${String(to).padStart(2, '0')}:00`;
+      els.clockShift.classList.toggle('is-final', hour === 6);
+      els.clockShift.hidden = false;
+      clockShiftRemaining = hour === 6 ? 2.4 : 1.5;
     }),
     on('jumpscare', ({ enemyId }) => startScare(enemyId)),
     on('glitch', ({ type, durationSec }) => {
@@ -1383,13 +1496,17 @@ export function mount(rootEl, ctx) {
       } else if (type === 'silhouette') {
         els.silhouetteTime = durationSec ?? 0.45;
         els.glitchSilhouette.hidden = false;
+      } else if (type === 'tokensDash') {
+        tokensDashTtl = durationSec ?? 0.8;
       }
     }),
     on('camera:open', syncCam),
     on('camera:close', syncCam),
     on('night:start', () => {
+      stopPauseMusic();
       stopMenuMusic();
       els.gameActive = true;
+      updatePauseButton();
       els.stage.inert = false;
       els.pauseScreen.hidden = true;
       els.paused = false;
@@ -1400,22 +1517,29 @@ export function mount(rootEl, ctx) {
       els.clockBack = 0;
       els.silhouetteTime = 0;
       els.glitchSilhouette.hidden = true;
+      els.failedScreen.hidden = true;
+      els.clockShift.hidden = true;
+      clockShiftRemaining = 0;
+      tokensDashTtl = 0;
       renderClock(state);
       syncCam();
       els.menu.hidden = true;
     }),
     on('game:paused', showPauseMenu),
     on('game:resumed', () => {
+      stopPauseMusic();
       els.stage.inert = false;
       const minigameScreen = document.querySelector('.mg-screen');
       if (minigameScreen) minigameScreen.inert = false;
       els.pauseScreen.hidden = true;
       els.paused = false;
+      updatePauseButton();
     }),
     on('game:menu', () => showMainMenu(ctx)),
-    on('minigame:start', () => { els.gameActive = true; }),
-    on('minigame:close', () => { els.gameActive = false; }),
-    on('ending:show', () => { els.gameActive = false; }),
+    on('minigame:start', () => { els.gameActive = true; updatePauseButton(); }),
+    on('minigame:complete', () => { els.gameActive = true; updatePauseButton(); }),
+    on('minigame:close', () => { els.gameActive = false; updatePauseButton(); }),
+    on('ending:show', () => { els.gameActive = false; updatePauseButton(); }),
     on('minigame:close', () => showStart('ui.title', ctx)),
     on('save:change', ({ available }) => {
       els.hasSave = available;
@@ -1427,6 +1551,7 @@ export function mount(rootEl, ctx) {
 
 export function unmount() {
   stopMenuMusic();
+  stopPauseMusic();
   if (els.handleEscape) window.removeEventListener('keydown', els.handleEscape);
   window.removeEventListener('resize', layoutMenuArt);
   mfxStop();

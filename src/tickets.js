@@ -159,7 +159,9 @@ on('intent:repairEnd', stopHold);
 // Перезагрузка сломанной камеры (кнопка в окне камеры): holdSec секунд игрового времени.
 on('intent:reboot', ({ cam } = {}) => {
   if (!state.running || state.tokens <= 0 || rebooting.has(cam) || !state.brokenCams.includes(cam)) return;
-  rebooting.set(cam, data?.types?.camera?.holdSec ?? 2);
+  const durationSec = data?.types?.camera?.holdSec ?? 2;
+  rebooting.set(cam, durationSec);
+  emit('camera:rebooting', { cam, durationSec });
 });
 
 // ---------- каждый кадр ----------

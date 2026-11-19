@@ -521,6 +521,13 @@ on('ticket:new', ({ id }) => {
 });
 // Звук печати длинный (около 36 с): когда тикет закрыт, принтер затихает.
 on('ticket:resolved', ({ id }) => { audio.stop(printerSnds.get(id)); printerSnds.delete(id); });
+on('ticket:missed', ({ id }) => { audio.stop(printerSnds.get(id)); printerSnds.delete(id); });
+function stopPrinterSounds() {
+  for (const handle of printerSnds.values()) audio.stop(handle);
+  printerSnds.clear();
+}
+on('night:start', stopPrinterSounds);
+on('night:end', stopPrinterSounds);
 // Конец смены без провала: куранты.
 on('night:end', ({ failed }) => { if (!failed) audio.play('night_end_chime'); });
 let shutdownSndPlayed = false;
@@ -535,8 +542,26 @@ on('tokens:change', ({ value }) => {
 });
 on('ticket:new', () => audio.play('teams_ping'));
 on('ticket:missed', () => audio.play('ticket_missed'));
-on('camera:rebooted', () => audio.play('cam_reboot'));
-on('ticket:resolved', () => { stopHoldSound(); audio.play('repair_done'); });
+const cameraRepairSounds = new Map();
+function stopCameraRepairSounds() {
+  for (const handle of cameraRepairSounds.values()) audio.stop(handle);
+  cameraRepairSounds.clear();
+}
+on('camera:rebooting', ({ cam }) => {
+  audio.stop(cameraRepairSounds.get(cam));
+  cameraRepairSounds.set(cam, audio.play('repair_hold', { loop: true }));
+});
+on('camera:rebooted', ({ cam }) => {
+  audio.stop(cameraRepairSounds.get(cam));
+  cameraRepairSounds.delete(cam);
+  audio.play('cam_reboot');
+});
+on('ticket:resolved', ({ id }) => {
+  stopHoldSound();
+  const tk = state.tickets.find((ticket) => ticket.id === id);
+  if (tk?.type !== 'camera') audio.play('repair_done');
+});
+on('game:exit', stopCameraRepairSounds);
 // Сообщение-давление: сначала слышна клавиатура на позиции устройства тикета, пока «печатает…», потом звук Teams.
 on('ticket:pressure', ({ id, key }) => {
   const tk = state.tickets.find((x) => x.id === id);
@@ -582,13 +607,25 @@ on('tick', () => {
 // Щелчок интерфейса на любой кнопке.
 document.addEventListener('pointerdown', (e) => {
   const button = e.target.closest?.('button');
-  if (button && !button.dataset.actionSound && button.dataset.noUiClick !== 'true'
-    && !e.target.closest?.('.dbg-panel, .dbg-toggle')) audio.play('ui_click');
+  if (!button || button.dataset.actionSound || e.target.closest?.('.dbg-panel, .dbg-toggle')) return;
+  const overlay = button.closest('.main-menu, .pause-screen, .shift-failed, .mg-screen, .rc-root');
+  if (button.dataset.noUiClick !== 'true' || overlay) {
+    const paused = !!button.closest('.pause-screen, .main-menu.is-pause-settings');
+    audio.play('ui_click', paused ? { allowPaused: true } : {});
+  }
+});
+document.addEventListener('pointerover', (e) => {
+  const button = e.target.closest?.('button');
+  if (!button || button.disabled || (e.relatedTarget && button.contains(e.relatedTarget))
+    || !button.closest('.main-menu, .pause-screen')) return;
+  const paused = !!button.closest('.pause-screen, .main-menu.is-pause-settings');
+  audio.play('ui_click', { volume: 0.3, ...(paused ? { allowPaused: true } : {}) });
 });
 
 on('night:end', () => {
   audio.setAmbient([]);
   stopHoldSound();
+  stopCameraRepairSounds();
   if (lureSnd) { audio.stop(lureSnd); lureSnd = null; }
   if (alarm) { audio.stop(alarm); alarm = null; }
 });

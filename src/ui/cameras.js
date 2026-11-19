@@ -10,8 +10,6 @@ const HALLS = ['s_hall1', 's_hall2', 's_hall3'];   // сегменты одно�
 const NOISE_W = 128;
 const NOISE_H = 96;
 const NOISE_MS = 90;
-const LOAD_SEGMENTS = 5;     // максимум нагрузки по правилам: фон 1 + камера 1 + звонок 2 + починка 1
-const LOAD_OVERLOAD = 5;
 const AUTO_LUMA = 0.22;      // к какой средней яркости подтягиваются тёмные кадры (0..1)
 const AUTO_GAIN_MAX = 2.2;   // во сколько раз максимум можно осветлить кадр   // единственное исключение из правила про таймеры: шум на canvas раз в 80–100 мс
 
@@ -27,7 +25,6 @@ let repairBtns = new Map();   // id тикета -> { btn, fill }
 let shown = null;      // номер камеры на экране или null (карта)
 let noiseTimer = null;
 let aiTextTtl = 0;
-let tokensDashTtl = 0;
 let camera12Ttl = 0;
 let preload = [];
 let last = {};         // последние тексты HUD, чтобы не трогать DOM зря
@@ -184,16 +181,6 @@ function buildView(parent, ctx) {
   el('div', 'hud-rec', hud).textContent = T('cams.hud.rec');
   els.hudTime = el('div', 'hud-time', hud);
   els.hudName = el('div', 'hud-name', hud);
-  const stat = el('div', 'hud-stat', hud);
-  els.hudTokens = el('div', '', stat);
-  const load = el('div', 'hud-load', stat);
-  els.hudLoadLabel = el('span', 'hud-load__label', load);
-  const bar = el('span', 'hud-load__bar', load);
-  els.loadSegs = [];
-  for (let i = 0; i < LOAD_SEGMENTS; i++) {
-    // 1–2 зелёные, 3–4 жёлтые, 5 красная
-    els.loadSegs.push(el('i', i < 2 ? 'lv-g' : i < 4 ? 'lv-y' : 'lv-r', bar));
-  }
 
   // Панель ИИ-агента: звонок-приманка
   els.callAt = el('div', 'cam-call-at', els.frame);   // куда звонит агент (комната открытой камеры)
@@ -275,17 +262,6 @@ function setText(key, node, text) {
 function syncHud() {
   const hour = Math.min(6, Math.floor(S.time / 60));
   setText('time', els.hudTime, T('cams.hud.time', { h: hour === 0 ? 12 : hour }));
-  setText('tokens', els.hudTokens, tokensDashTtl > 0
-    ? T('cams.hud.tokens', { v: '—' })
-    : T('cams.hud.tokens', { v: Math.ceil(S.tokens) }));
-  const over = S.load >= LOAD_OVERLOAD;
-  setText('load', els.hudLoadLabel, over ? T('cams.hud.overload') : T('cams.hud.load'));
-  els.hudLoadLabel.classList.toggle('is-over', over);
-  const lit = Math.min(LOAD_SEGMENTS, Math.max(0, Math.round(S.load)));
-  if (last.lit !== lit) {
-    last.lit = lit;
-    els.loadSegs.forEach((seg, i) => seg.classList.toggle('is-lit', i < lit));
-  }
   syncCall();
 }
 
@@ -629,11 +605,9 @@ export function mount(rootEl, ctx) {
   };
   const resetGlitches = () => {
     aiTextTtl = 0;
-    tokensDashTtl = 0;
     camera12Ttl = 0;
     els.glitchText.hidden = true;
     els.camera12.hidden = true;
-    last.tokens = '';
     refresh();
     if (shown !== null) syncHud();
   };
@@ -667,10 +641,6 @@ export function mount(rootEl, ctx) {
       if (type === 'aiText') {
         aiTextTtl = durationSec ?? 0.12;
         els.glitchText.hidden = false;
-      } else if (type === 'tokensDash') {
-        tokensDashTtl = durationSec ?? 0.8;
-        last.tokens = '';
-        syncHud();
       } else if (type === 'camera12') {
         camera12Ttl = durationSec ?? 1;
         els.camera12.hidden = false;
@@ -681,11 +651,6 @@ export function mount(rootEl, ctx) {
       if (aiTextTtl > 0) {
         aiTextTtl = Math.max(0, aiTextTtl - dt);
         els.glitchText.hidden = aiTextTtl <= 0;
-      }
-      if (tokensDashTtl > 0) {
-        const wasVisible = tokensDashTtl > 0;
-        tokensDashTtl = Math.max(0, tokensDashTtl - dt);
-        if (wasVisible && tokensDashTtl === 0) last.tokens = '';
       }
       if (camera12Ttl > 0) {
         camera12Ttl = Math.max(0, camera12Ttl - dt);
@@ -710,7 +675,6 @@ export function unmount() {
   offs = [];
   preload = [];
   aiTextTtl = 0;
-  tokensDashTtl = 0;
   camera12Ttl = 0;
   if (root) root.replaceChildren();
   root = null;

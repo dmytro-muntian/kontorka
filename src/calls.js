@@ -44,8 +44,8 @@ function endPhone(outcome, { silent = false } = {}) {
   const p = phone();
   if (p.status === 'idle') return;
   stopSounds();
-  const storyEndedEarly = p.kind === 'story' && (outcome === 'hungup' || outcome === 'declined');
-  if (!silent && storyEndedEarly) audio.play('call_hangup');
+  const storyEnded = p.kind === 'story' && ['finished', 'hungup', 'declined'].includes(outcome);
+  if (!silent && storyEnded) audio.play('call_hangup');
   if (p.sub) emit('subtitle', { key: null });
   set('phone', { status: 'idle', kind: null, id: null, name: null, t: 0, sub: null });
   if (p.kind === 'story') emit('call:end', {

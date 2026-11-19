@@ -11,12 +11,12 @@ const catalog = {};     // id -> { file, kind, loop, volume }
 const buffers = {};     // id -> AudioBuffer
 let ambient = [];       // [{ id, handle }]
 const soundLoads = new Map(); // id -> Promise<AudioBuffer | null>
+const htmlHandles = new Set();
 
 // Вызывать только из обработчика касания.
 export function init() {
-  manuallyPaused = false;
   if (ctx) {
-    if (ctx.state !== 'running') ctx.resume();
+    if (!manuallyPaused) resumeContext();
     return ctx;
   }
   const AC = window.AudioContext || window.webkitAudioContext;
@@ -25,7 +25,7 @@ export function init() {
     return null;
   }
   ctx = new AC();
-  ctx.resume();
+  resumeContext();
   watchContext();
   master = ctx.createGain();
   master.gain.value = masterVolume;
@@ -44,7 +44,7 @@ export function init() {
 // (suspended, а на iPhone ещё interrupted). Будим его при любом таком событии и при любом касании.
 function watchContext() {
   const wake = () => {
-    if (!manuallyPaused && ctx && ctx.state !== 'running') ctx.resume().catch(() => {});
+    if (!manuallyPaused) resumeContext();
   };
   ctx.addEventListener?.('statechange', () => {
     console.info(`audio: состояние ${ctx.state}`);
@@ -54,6 +54,12 @@ function watchContext() {
   for (const ev of ['orientationchange', 'pageshow', 'resize']) window.addEventListener(ev, wake);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) wake(); });
   document.addEventListener('pointerdown', wake, true);
+  document.addEventListener('touchstart', wake, { capture: true, passive: true });
+}
+
+function resumeContext() {
+  if (!ctx || ctx.state === 'running') return;
+  ctx.resume().catch((e) => console.warn('audio: не удалось возобновить AudioContext', e));
 }
 
 // Все id звуков (каталог + процедурные заглушки) для отладочной панели.
@@ -81,6 +87,9 @@ export function setMasterVolume(value) {
   }
   masterVolume = Math.max(0, Math.min(1, volume));
   if (master) master.gain.setTargetAtTime(masterVolume, ctx.currentTime, 0.02);
+  for (const handle of htmlHandles) {
+    handle._audio.volume = Math.min(1, masterVolume * (handle._opts.volume ?? 1) * (handle._def.volume ?? 1));
+  }
 }
 
 // Читает каталог звуков (вызывается при загрузке игры, до касания).
@@ -142,9 +151,12 @@ export function play(soundId, opts = {}) {
     console.warn(`audio.play: звука «${soundId}» нет в каталоге`);
     return null;
   }
-  if (manuallyPaused) return null;
+  if (manuallyPaused) {
+    if (!opts.allowPaused || !def.file) return null;
+    return playPausedHtml(soundId, def, opts);
+  }
   if (!ctx) return null;
-  if (ctx.state !== 'running') ctx.resume();
+  resumeContext();
 
   const handle = { stop() { stopHandle(handle); } };
   handle._id = soundId;
@@ -154,7 +166,7 @@ export function play(soundId, opts = {}) {
   if (!buf) {
     // Загрузка может завершиться ошибкой; повторяем её по запросу и используем синтез, если он доступен.
     loadSound(def).then((loaded) => {
-      if (stopped.has(handle)) return;
+      if (stopped.has(handle) || manuallyPaused) return;
       const fallback = loaded ? null : createSynthBuffer(soundId);
       if (loaded || fallback) startHandle(handle, loaded || fallback);
       else if (soundId === 'jumpscare') {
@@ -166,6 +178,27 @@ export function play(soundId, opts = {}) {
     return handle;
   }
   startHandle(handle, buf);
+  return handle;
+}
+
+function playPausedHtml(soundId, def, opts) {
+  const src = new Audio(new URL(def.file, document.baseURI).href);
+  src.loop = opts.loop ?? def.loop ?? false;
+  src.volume = Math.min(1, masterVolume * (opts.volume ?? 1) * (def.volume ?? 1));
+  src.preload = 'auto';
+  const handle = {
+    _id: soundId,
+    _opts: opts,
+    _def: def,
+    _audio: src,
+    stop() { stopHandle(handle); },
+  };
+  htmlHandles.add(handle);
+  src.addEventListener('ended', () => htmlHandles.delete(handle), { once: true });
+  src.play().catch((e) => {
+    htmlHandles.delete(handle);
+    if (!stopped.has(handle)) console.warn(`audio: не удалось воспроизвести «${soundId}»`, e);
+  });
   return handle;
 }
 
@@ -230,6 +263,12 @@ function startHandle(handle, buf) {
 
 function stopHandle(handle) {
   stopped.add(handle);
+  if (handle._audio) {
+    handle._audio.pause();
+    handle._audio.currentTime = 0;
+    htmlHandles.delete(handle);
+    return;
+  }
   try { handle._src?.stop(); } catch (e) { /* уже остановлен */ }
 }
 
@@ -460,7 +499,7 @@ export function playCall(callId) {
       }
       const buf = buffers[`call:${callId}`];
       handle.duration = buf.duration;
-      if (handle._stopped) return;
+      if (handle._stopped || manuallyPaused) return;
       const src = ctx.createBufferSource();
       src.buffer = buf;
       const g = ctx.createGain();
