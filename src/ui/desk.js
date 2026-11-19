@@ -617,7 +617,6 @@ let shownText = '';
 let menuAudioUnlocked = false;
 let pauseMusic = null;
 let tokensDashTtl = 0;
-let clockShiftRemaining = 0;
 
 window.addEventListener('kontorka:disclaimer-accepted', () => {
   menuAudioUnlocked = true;
@@ -1342,8 +1341,14 @@ export function mount(rootEl, ctx) {
   els.clockShift = el('div', 'clock-shift', root);
   els.clockShift.hidden = true;
   els.clockShift.setAttribute('aria-live', 'polite');
-  els.clockShiftLabel = el('span', 'clock-shift__label', els.clockShift);
-  els.clockShiftTime = el('strong', 'clock-shift__time', els.clockShift);
+  const shiftCard = el('div', 'clock-shift__card', els.clockShift);
+  els.clockShiftLabel = el('span', 'clock-shift__label', shiftCard);
+  els.clockShiftTime = el('strong', 'clock-shift__time', shiftCard);
+  const shiftTrack = el('div', 'clock-shift__track', shiftCard);
+  el('span', 'clock-shift__time-in', shiftTrack).textContent = '00:00';
+  el('i', '', shiftTrack);
+  el('span', 'clock-shift__time-out', shiftTrack).textContent = '06:00';
+  els.clockShiftStatus = el('span', 'clock-shift__status', shiftCard);
 
   els.paused = false;
   els.settingsReturn = 'main';
@@ -1419,7 +1424,10 @@ export function mount(rootEl, ctx) {
 
   els.pauseButton = el('button', 'pause-button', root);
   els.pauseButton.type = 'button';
-  els.pauseButton.textContent = 'Ⅱ';
+  const pauseIcon = el('span', 'pause-button__icon', els.pauseButton);
+  pauseIcon.setAttribute('aria-hidden', 'true');
+  el('i', '', pauseIcon);
+  el('i', '', pauseIcon);
   els.pauseButton.setAttribute('aria-label', t('menu.pause.title'));
   els.pauseButton.title = t('menu.pause.title');
   els.pauseButton.hidden = true;
@@ -1462,10 +1470,6 @@ export function mount(rootEl, ctx) {
         els.hudLoadSegments.forEach((segment, i) => segment.classList.toggle('is-lit', i < lit));
       }
       if (tokensDashTtl > 0) tokensDashTtl = Math.max(0, tokensDashTtl - dt);
-      if (clockShiftRemaining > 0) {
-        clockShiftRemaining = Math.max(0, clockShiftRemaining - dt);
-        els.clockShift.hidden = clockShiftRemaining === 0;
-      }
       updateTension(state);
       els.flickWin(dt, state.running);
       els.flickSpill(dt, state.running && state.tokens > 0 && state.load >= 5);
@@ -1476,14 +1480,12 @@ export function mount(rootEl, ctx) {
       updateScare(dt, ctx);
     }),
     on('clock:hour', ({ hour }) => {
-      if (hour < 1 || hour > 6) return;
-      const from = (hour - 1) % 12 || 12;
-      const to = hour % 12 || 12;
-      els.clockShiftLabel.textContent = ctx.t(hour === 6 ? 'ui.hourShift.final' : 'ui.hourShift.label');
-      els.clockShiftTime.textContent = `${String(from).padStart(2, '0')}:00  →  ${String(to).padStart(2, '0')}:00`;
-      els.clockShift.classList.toggle('is-final', hour === 6);
+      if (hour !== 6) return;
+      els.clockShiftLabel.textContent = ctx.t('ui.hourShift.label');
+      els.clockShiftTime.textContent = ctx.t('ui.hourShift.final');
+      els.clockShiftStatus.textContent = ctx.t('ui.hourShift.status');
       els.clockShift.hidden = false;
-      clockShiftRemaining = hour === 6 ? 2.4 : 1.5;
+      els.clockShift.classList.add('is-final');
     }),
     on('jumpscare', ({ enemyId }) => startScare(enemyId)),
     on('glitch', ({ type, durationSec }) => {
@@ -1519,11 +1521,16 @@ export function mount(rootEl, ctx) {
       els.glitchSilhouette.hidden = true;
       els.failedScreen.hidden = true;
       els.clockShift.hidden = true;
-      clockShiftRemaining = 0;
+      els.clockShift.classList.remove('is-final');
       tokensDashTtl = 0;
       renderClock(state);
       syncCam();
       els.menu.hidden = true;
+    }),
+    on('night:end', ({ failed }) => {
+      if (failed) return;
+      els.gameActive = false;
+      updatePauseButton();
     }),
     on('game:paused', showPauseMenu),
     on('game:resumed', () => {
@@ -1536,6 +1543,7 @@ export function mount(rootEl, ctx) {
       updatePauseButton();
     }),
     on('game:menu', () => showMainMenu(ctx)),
+    on('minigame:start', () => { els.clockShift.hidden = true; }),
     on('minigame:start', () => { els.gameActive = true; updatePauseButton(); }),
     on('minigame:complete', () => { els.gameActive = true; updatePauseButton(); }),
     on('minigame:close', () => { els.gameActive = false; updatePauseButton(); }),

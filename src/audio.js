@@ -159,6 +159,7 @@ export function play(soundId, opts = {}) {
   resumeContext();
 
   const handle = { stop() { stopHandle(handle); } };
+  handle.finished = new Promise((resolve) => { handle._finish = resolve; });
   handle._id = soundId;
   handle._opts = opts;
   handle._def = def;
@@ -173,12 +174,16 @@ export function play(soundId, opts = {}) {
         console.error('audio: jumpscare.mp3 не загрузился, играет запасной синтез');
         const synth = playJumpscare();
         handle._src = { stop: () => synth?.stop() };
-      }
+      } else finishHandle(handle);
     });
     return handle;
   }
   startHandle(handle, buf);
   return handle;
+}
+
+export function whenFinished(handle) {
+  return handle?.finished ?? Promise.resolve();
 }
 
 function playPausedHtml(soundId, def, opts) {
@@ -255,7 +260,10 @@ function startHandle(handle, buf) {
   }
   node.connect(g);
   g.connect(master);
-  src.onended = () => { try { g.disconnect(); } catch (e) { /* уже отключён */ } };
+  src.onended = () => {
+    try { g.disconnect(); } catch (e) { /* уже отключён */ }
+    finishHandle(handle);
+  };
   src.start(0);
   handle._src = src;
   handle._gain = g;
@@ -263,6 +271,7 @@ function startHandle(handle, buf) {
 
 function stopHandle(handle) {
   stopped.add(handle);
+  finishHandle(handle);
   if (handle._audio) {
     handle._audio.pause();
     handle._audio.currentTime = 0;
@@ -270,6 +279,12 @@ function stopHandle(handle) {
     return;
   }
   try { handle._src?.stop(); } catch (e) { /* уже остановлен */ }
+}
+
+function finishHandle(handle) {
+  if (handle._finished) return;
+  handle._finished = true;
+  handle._finish?.();
 }
 
 export function stop(handle) {

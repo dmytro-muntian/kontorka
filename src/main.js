@@ -228,7 +228,8 @@ on('night:end', ({ n, failed }) => {
     summary: minigameSummary(),
   });
   save();
-  fadeThrough(() => resumeMinigame(), { out: 900 });
+  const chime = audio.play('night_end_chime');
+  audio.whenFinished(chime).then(() => fadeThrough(() => resumeMinigame(), { out: 900 }));
 });
 
 on('intent:minigameBegin', () => {
@@ -528,8 +529,6 @@ function stopPrinterSounds() {
 }
 on('night:start', stopPrinterSounds);
 on('night:end', stopPrinterSounds);
-// Конец смены без провала: куранты.
-on('night:end', ({ failed }) => { if (!failed) audio.play('night_end_chime'); });
 let shutdownSndPlayed = false;
 on('night:start', () => {
   shutdownSndPlayed = false;
