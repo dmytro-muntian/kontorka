@@ -1,5 +1,6 @@
 {
   "ui.title": "Das Büro",
+  "ui.demo": "DEMO-VERSION",
   "ui.startShift": "Schicht beginnen",
   "ui.fullscreen": "Vollbild",
   "ui.addToHome": "Ohne Browserleisten spielen: „Teilen“ → „Zum Home-Bildschirm“, dann vom Startbildschirm öffnen",

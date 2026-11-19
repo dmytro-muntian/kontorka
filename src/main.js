@@ -222,9 +222,12 @@ function resumeMinigame() {
 // Утро: переход 5 AM → 6 AM. Ход считается из tick, оформление рисуют desk.js и teams.js по событиям morning:*.
 // Шаги: тишина и часы на 5 AM → часы меняются на 6 AM, рассвет и куранты → отчёт ИИ-агента в Teams →
 // лишнее уведомление пятого → табель смен → затемнение в мини-игру. Тайминги в data/nights.json, блок morning.
-const MORNING_DEFAULTS = { silenceSec: 2.5, reportAfterSec: 2, phantomAfterSec: 5, holdSec: 4.5 };
+// music: звук-петля, которая включается сразу в момент 6 AM вместе с курантами и играет до конца мини-игры (null: без музыки).
+// afterCardSec: сколько табель смен висит до перехода к статистике. Куранты на переход не ждём: они доигрывают поверх.
+const MORNING_DEFAULTS = { silenceSec: 2.5, reportAfterSec: 2, phantomAfterSec: 5, holdSec: 4.5, afterCardSec: 1.5, music: 'amb_menu' };
 let morning = null;
-let morningChimeDone = false;
+let morningMusic = null;
+function stopMorningMusic() { if (morningMusic) { audio.stop(morningMusic); morningMusic = null; } }
 
 on('night:end', ({ n, failed }) => {
   if (failed || state.progress.gameComplete) return;
@@ -237,7 +240,7 @@ on('night:end', ({ n, failed }) => {
   });
   save();
   morning = { t: 0, step: 0, n, cfg: { ...MORNING_DEFAULTS, ...(nights[n]?.morning ?? {}) }, summary: state.progress.summary };
-  morningChimeDone = false;
+  stopMorningMusic();
   emit('morning:start', { n, summary: morning.summary });
 });
 
@@ -249,8 +252,8 @@ on('tick', ({ dt }) => {
   if (m.step === 0 && m.t >= c.silenceSec) {
     m.step = 1;
     emit('morning:flip', { n: m.n });
-    const chime = audio.play('night_end_chime');
-    audio.whenFinished(chime).then(() => { morningChimeDone = true; });
+    audio.play('night_end_chime');
+    if (c.music) morningMusic = audio.play(c.music, { loop: true });   // музыка сразу с 6 утра, без тишины после курантов
   }
   if (m.step === 1 && m.t >= c.silenceSec + c.reportAfterSec) {
     m.step = 2;
@@ -264,13 +267,15 @@ on('tick', ({ dt }) => {
     m.step = 4;
     emit('morning:card', { n: m.n });
   }
-  if (m.step === 4 && morningChimeDone && m.t >= c.silenceSec + c.holdSec + 3) {
+  if (m.step === 4 && m.t >= c.silenceSec + c.holdSec + c.afterCardSec) {
     morning = null;
     fadeThrough(() => resumeMinigame(), { out: 900 });
   }
 });
-on('night:start', () => { morning = null; });
-on('game:menu', () => { morning = null; });
+on('night:start', () => { morning = null; stopMorningMusic(); });
+on('game:menu', () => { morning = null; stopMorningMusic(); });
+on('minigame:close', stopMorningMusic);
+on('ending:show', stopMorningMusic);
 
 on('intent:minigameBegin', () => {
   if (state.progress.minigamePending === null) return;
@@ -569,18 +574,44 @@ function stopPrinterSounds() {
 }
 on('night:start', stopPrinterSounds);
 on('night:end', stopPrinterSounds);
+// 0% токенов = компьютер обесточен. Все его звуки (звонки, Teams, ИИ-агент, камеры, сигналы) гаснут и не запускаются
+// (список в audio.js, COMPUTER_SOUNDS), записи звонков обрываются. Состояние читаем каждый кадр,
+// поэтому работает при любом способе обнуления, в том числе из отладочной панели.
 let shutdownSndPlayed = false;
-on('night:start', () => {
-  shutdownSndPlayed = false;
-});
-on('tokens:change', ({ value }) => {
-  if (value > 0 || !state.running || shutdownSndPlayed) return;
+function cutPower() {
+  if (shutdownSndPlayed) return;
   shutdownSndPlayed = true;
+  audio.setPower(false);
+  lureSnd = null; holdSnd = null; alarm = null; feedSnd = null; staticSnd = null;   // сами звуки audio уже остановил
+  cameraRepairSounds.clear();
   blackout = true;      // гул ПК и напряжение гаснут, фон темноты
   syncAmbient();
   audio.play('tokens_zero');
   audio.play('power_out');
+  emit('power:out');    // calls.js и другие модули могут закончить свои записи и очистить субтитры
+}
+function restorePower() {   // токены вернули (отладка)
+  if (!shutdownSndPlayed) return;
+  shutdownSndPlayed = false;
+  audio.setPower(true);
+  blackout = false;
+  syncAmbient();
+  emit('power:on');
+}
+on('night:start', () => {
+  shutdownSndPlayed = false;
+  audio.setPower(true);
 });
+on('tokens:change', ({ value }) => {
+  if (value > 0 || !state.running) return;
+  cutPower();
+});
+on('tick', () => {
+  if (!state.running) return;
+  if (state.tokens <= 0) cutPower();
+  else restorePower();
+});
+on('night:end', ({ failed }) => { if (!failed) audio.setPower(true); });
 on('ticket:new', () => audio.play('teams_ping'));
 on('ticket:missed', () => audio.play('ticket_missed'));
 const cameraRepairSounds = new Map();

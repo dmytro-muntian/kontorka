@@ -12,6 +12,25 @@ const buffers = {};     // id -> AudioBuffer
 let ambient = [];       // [{ id, handle }]
 const soundLoads = new Map(); // id -> Promise<AudioBuffer | null>
 const htmlHandles = new Set();
+const liveHandles = new Set();   // запущенные звуки каталога (нужны, чтобы погасить их при отключении питания)
+const activeCalls = new Set();   // запущенные записи звонков
+
+// Питание компьютера. При 0% токенов main.js вызывает setPower(false): все звуки, которые исходят от компьютера
+// (Teams, ИИ-агент, камеры, сигналы, записи звонков), сразу глохнут и не запускаются, пока питание не вернули.
+// Звуки мира (шаги, двери, клавиатура и принтер НПС, туалет, смех, скример) от питания не зависят.
+const COMPUTER_SOUNDS = new Set([
+  'amb_pc_hum', 'amb_cam_feed', 'cam_static', 'cam_switch', 'cam_reboot',
+  'teams_call', 'teams_ping', 'teams_pressure', 'call_pickup', 'call_hangup',
+  'agent_lure', 'repair_hold', 'repair_done', 'overload_alarm', 'ticket_missed', 'glitch_ai',
+]);
+let powerOn = true;
+export function setPower(on) {
+  powerOn = !!on;
+  if (powerOn) return;
+  for (const handle of [...liveHandles]) if (COMPUTER_SOUNDS.has(handle._id)) handle.stop();
+  for (const handle of [...htmlHandles]) if (COMPUTER_SOUNDS.has(handle._id)) handle.stop();
+  for (const handle of [...activeCalls]) handle.stop();
+}
 
 // Вызывать только из обработчика касания.
 export function init() {
@@ -151,6 +170,7 @@ export function play(soundId, opts = {}) {
     console.warn(`audio.play: звука «${soundId}» нет в каталоге`);
     return null;
   }
+  if (!powerOn && COMPUTER_SOUNDS.has(soundId)) return null;   // компьютер обесточен
   if (manuallyPaused) {
     // На паузе Web Audio остановлен: играем через <audio>. Заглушки превращаются в маленький WAV.
     if (!opts.allowPaused || (!def.file && !SYNTH[soundId])) return null;
@@ -164,6 +184,7 @@ export function play(soundId, opts = {}) {
   handle._id = soundId;
   handle._opts = opts;
   handle._def = def;
+  liveHandles.add(handle);
   const buf = buffers[soundId];
   if (!buf) {
     // Загрузка может завершиться ошибкой; повторяем её по запросу и используем синтез, если он доступен.
@@ -285,6 +306,7 @@ function stopHandle(handle) {
 function finishHandle(handle) {
   if (handle._finished) return;
   handle._finished = true;
+  liveHandles.delete(handle);
   handle._finish?.();
 }
 
@@ -595,7 +617,7 @@ export function loadCalls(map) {
 // getTime() отсчитывается от фактического старта аудио, а не от нажатия «Принять».
 export function playCall(callId) {
   const def = callDefs[callId];
-  if (manuallyPaused || !def?.audio || !ctx) return null;
+  if (manuallyPaused || !powerOn || !def?.audio || !ctx) return null;
   if (ctx.state !== 'running') ctx.resume();
   const handle = {
     duration: null,
@@ -604,8 +626,9 @@ export function playCall(callId) {
     _stopped: false,
     _src: null,
     getTime() { return this.startedAt === null ? null : Math.max(0, ctx.currentTime - this.startedAt); },
-    stop() { this._stopped = true; try { this._src?.stop(); } catch (e) { /* уже остановлен */ } },
+    stop() { this._stopped = true; activeCalls.delete(this); try { this._src?.stop(); } catch (e) { /* уже остановлен */ } },
   };
+  activeCalls.add(handle);
   (async () => {
     try {
       if (!buffers[`call:${callId}`]) {
@@ -625,7 +648,9 @@ export function playCall(callId) {
       handle.startedAt = ctx.currentTime;
       src.start(0);
       handle._src = src;
+      src.onended = () => activeCalls.delete(handle);
     } catch (e) {
+      activeCalls.delete(handle);
       handle.failed = true;
       console.warn(`audio.playCall: запись «${def.audio}» не загрузилась, звонок идёт без звука`, e);
     }

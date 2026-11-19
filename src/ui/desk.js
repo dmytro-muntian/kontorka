@@ -268,25 +268,27 @@ function mfxInitMonitor(fx, art) {
   art.appendChild(c);
   const [nc, ncx] = makeCanvas(96, 80);
   fx.mon = { c, cx, W, H, tex: null, mask: mfxMonitorMask(W, H), lines: mfxMonitorLines(W, H),
-    noise: nc, noiseCx: ncx, noiseImg: ncx.createImageData(96, 80), bands: [], slabs: [], roll: null, flick: 0 };
+    noise: nc, noiseCx: ncx, noiseImg: ncx.createImageData(96, 80), bands: [], slabs: [], roll: null, flick: 0,
+    nextEv: 0, evUntil: 0, evType: 'burst', microAt: 0, microUntil: 0 };
 }
 
-function mfxBand(W, H, burst) {
+// Помехи живут только на стекле монитора. level: 0 спокойный фон, 1 короткий срыв, 2 большой всплеск.
+function mfxBand(W, H, level) {
   const r = Math.random();
-  const type = r < 0.45 ? 'shift' : r < 0.7 ? 'swap' : r < 0.88 ? 'smear' : 'ghost';
-  const h = type === 'smear' ? rand(6, 34) : rand(3, 28);
-  const big = Math.random() < 0.3;
+  const type = r < 0.4 ? 'shift' : r < 0.65 ? 'swap' : r < 0.85 ? 'smear' : 'ghost';
+  const h = type === 'smear' ? rand(6, 40) : rand(3, 30);
+  const big = Math.random() < (level ? 0.45 : 0.3);
   return {
-    type, h, y: rand(0, H - h), sy: rand(0, H - h), ghost: rand(3, 8) * (Math.random() < 0.5 ? -1 : 1),
-    off: (Math.random() < 0.5 ? -1 : 1) * (big ? rand(25, 90) : rand(3, 22)) * (burst ? 1.4 : 1),
-    ttl: rand(70, burst ? 260 : 480),
+    type, h, y: rand(0, H - h), sy: rand(0, H - h), ghost: rand(4, 10) * (Math.random() < 0.5 ? -1 : 1),
+    off: (Math.random() < 0.5 ? -1 : 1) * (big ? rand(30, 110) : rand(4, 26)) * (1 + 0.4 * level),
+    ttl: rand(70, level ? 260 : 480),
   };
 }
 
-function mfxSlab(W, H, burst) {
+function mfxSlab(W, H, level) {
   const r = Math.random();
   const kind = r < 0.5 ? 'bright' : r < 0.75 ? 'streak' : 'dark';
-  const s = { kind, ttl: rand(60, burst ? 220 : 300), dots: [] };
+  const s = { kind, ttl: rand(60, level ? 220 : 300), dots: [] };
   if (kind === 'bright') { s.w = rand(30, 120); s.h = rand(4, 14); s.color = '#e9fff6'; }
   else if (kind === 'streak') { s.w = rand(40, 170); s.h = rand(1, 2.2); s.color = '#f2fff9'; }
   else { s.w = rand(40, 150); s.h = rand(5, 18); s.color = '#040c0a'; }
@@ -298,15 +300,36 @@ function mfxSlab(W, H, burst) {
   return s;
 }
 
-function mfxTickMonitor(fx, dtMs, burst, type) {
+function mfxTickMonitor(fx, dtMs) {
   const m = fx.mon;
   if (!m.tex) return;
   const { cx, W, H, tex } = m;
+  const now = fx.t;
+
+  // свой планировщик монитора: большой всплеск каждые 1,8–4,2 с, между ними частые короткие срывы
+  if (now >= m.nextEv) {
+    const r = Math.random();
+    m.evType = r < 0.3 ? 'roll' : r < 0.5 ? 'drop' : 'burst';
+    m.evUntil = now + rand(500, 1100);
+    m.nextEv = now + rand(1800, 4200);
+    if (m.evType === 'roll') m.roll = { p: 0, dur: rand(450, 800) };
+  } else if (now >= m.microAt) {
+    m.microUntil = now + rand(80, 200);
+    m.microAt = now + rand(350, 1100);
+  }
+  const big = now < m.evUntil;
+  const level = big ? 2 : now < m.microUntil ? 1 : 0;
+
   cx.globalCompositeOperation = 'source-over';
   cx.globalAlpha = 1;
   cx.clearRect(0, 0, W, H);
 
-  // вертикальный срыв кадров (roll)
+  // дрожь кадра по горизонтали (только внутри монитора) и вертикальный срыв (roll)
+  const jx = level ? Math.round(rand(-1, 1) * (level === 2 ? 12 : 6)) : 0;
+  const drawFrame = (dy) => {
+    cx.drawImage(tex, jx, dy);
+    if (jx) cx.drawImage(tex, jx - Math.sign(jx) * W, dy);
+  };
   let rollY = 0;
   if (m.roll) {
     m.roll.p += dtMs / m.roll.dur;
@@ -314,19 +337,19 @@ function mfxTickMonitor(fx, dtMs, burst, type) {
     else rollY = Math.round(m.roll.p * m.roll.p * H);
   }
   if (rollY) {
-    cx.drawImage(tex, 0, rollY);
-    cx.drawImage(tex, 0, rollY - H);
+    drawFrame(rollY);
+    drawFrame(rollY - H);
     cx.fillStyle = 'rgba(0,0,0,0.85)';
     cx.fillRect(0, rollY - 5, W, 10);
   } else {
-    cx.drawImage(tex, 0, 0);
+    drawFrame(0);
   }
 
   // горизонтальные разрывы кадра
   m.bands = m.bands.filter((b) => (b.ttl -= dtMs) > 0);
-  const target = 8 + (burst ? 8 : 0) + (m.roll ? 3 : 0);
-  for (let k = 0; k < 2 && m.bands.length < target; k++) {
-    if (Math.random() < 0.55) m.bands.push(mfxBand(W, H, burst));
+  const target = 10 + level * 8 + (m.roll ? 4 : 0);
+  for (let k = 0; k < 3 && m.bands.length < target; k++) {
+    if (Math.random() < 0.6) m.bands.push(mfxBand(W, H, level));
   }
   for (const b of m.bands) {
     const y = Math.round(b.y), h = Math.max(1, Math.round(b.h)), wrap = b.off - Math.sign(b.off) * W;
@@ -343,7 +366,7 @@ function mfxTickMonitor(fx, dtMs, burst, type) {
       cx.drawImage(tex, 0, y, W, h, b.off, y, W, h);
       cx.drawImage(tex, 0, y, W, h, wrap, y, W, h);
       if (b.type === 'ghost') {
-        cx.globalCompositeOperation = 'lighter'; cx.globalAlpha = 0.35;
+        cx.globalCompositeOperation = 'lighter'; cx.globalAlpha = 0.45;
         cx.drawImage(tex, 0, y, W, h, b.off + b.ghost, y, W, h);
         cx.globalCompositeOperation = 'source-over'; cx.globalAlpha = 1;
       }
@@ -352,12 +375,29 @@ function mfxTickMonitor(fx, dtMs, burst, type) {
 
   // яркие и тёмные блоки «битой» картинки
   m.slabs = m.slabs.filter((s) => (s.ttl -= dtMs) > 0);
-  if (m.slabs.length < 8 && Math.random() < (burst ? 0.9 : 0.45)) m.slabs.push(mfxSlab(W, H, burst));
+  if (m.slabs.length < 14 && Math.random() < (level ? 0.95 : 0.55)) m.slabs.push(mfxSlab(W, H, level));
   for (const s of m.slabs) {
     cx.fillStyle = s.color;
     cx.fillRect(Math.round(s.x), Math.round(s.y), Math.round(s.w), Math.max(1, Math.round(s.h)));
     cx.fillStyle = s.kind === 'dark' ? '#5c8f7d' : '#0a1a15';
     for (const [dx, dy] of s.dots) cx.fillRect(Math.round(s.x) + dx, Math.round(s.y) + dy, 2, 2);
+  }
+
+  // красные и голубые обрывки сигнала (раньше они рисовались на весь экран)
+  if (level) {
+    const n = level === 2 ? 12 : 4;
+    for (let k = 0; k < n; k++) {
+      const bw = rand(8, level === 2 ? 90 : 40);
+      cx.fillStyle = Math.random() < 0.6 ? 'rgba(221,40,40,0.9)' : 'rgba(60,240,255,0.65)';
+      cx.fillRect(Math.round(rand(0, W - bw)), Math.round(rand(0, H)), Math.round(bw), Math.random() < 0.5 ? 1 : 2);
+    }
+    if (level === 2) {
+      cx.fillStyle = 'rgba(240,255,244,0.9)';
+      for (let k = 0; k < 3; k++) {
+        const len = rand(40, W * 0.7);
+        cx.fillRect(Math.round(rand(0, W - len)), Math.round(rand(0, H)), Math.round(len), 1);
+      }
+    }
   }
 
   // зерно
@@ -369,9 +409,14 @@ function mfxTickMonitor(fx, dtMs, burst, type) {
   m.noiseCx.putImageData(m.noiseImg, 0, 0);
   cx.imageSmoothingEnabled = false;
   cx.globalCompositeOperation = 'lighter';
-  cx.globalAlpha = burst ? 0.5 : 0.24;
+  cx.globalAlpha = level === 2 ? 0.65 : level === 1 ? 0.45 : 0.28;
   cx.drawImage(m.noise, 0, 0, W, H);
   cx.imageSmoothingEnabled = true;
+
+  // на большом всплеске иногда вспыхивает весь экран монитора
+  if (level === 2 && Math.random() < 0.1) {
+    cx.globalAlpha = 0.45; cx.fillStyle = '#d8fff0'; cx.fillRect(0, 0, W, H);
+  }
 
   // медленная светлая полоса развёртки
   const by = ((fx.t / 1000) * 0.11 % 1.5 - 0.25) * H;
@@ -380,71 +425,39 @@ function mfxTickMonitor(fx, dtMs, burst, type) {
   cx.globalAlpha = 1; cx.fillStyle = g; cx.fillRect(0, by - 22, W, 44);
   cx.globalCompositeOperation = 'source-over';
 
-  // провал яркости, строки развёртки, виньетка, мягкий край стекла
-  m.flick = type === 'drop' && burst ? 0.88 : (Math.random() < 0.05 ? rand(0.12, 0.35) : 0);
+  // провал яркости (на «drop» экран мигает почти до чёрного), строки развёртки, виньетка, мягкий край стекла
+  m.flick = m.evType === 'drop' && big ? (Math.random() < 0.75 ? 0.88 : 0.35) : (Math.random() < 0.07 ? rand(0.15, 0.4) : 0);
   if (m.flick) { cx.fillStyle = `rgba(0,0,0,${m.flick})`; cx.fillRect(0, 0, W, H); }
   cx.drawImage(m.lines, 0, 0);
   cx.globalCompositeOperation = 'destination-in';
   cx.drawImage(m.mask, 0, 0);
   cx.globalCompositeOperation = 'source-over';
 
-  if (els.menuGlow) els.menuGlow.style.opacity = String(Math.min(1, Math.max(0.15, 0.62 * (1 - m.flick * 0.9) + (burst ? 0.18 : 0))));
+  if (els.menuGlow) els.menuGlow.style.opacity = String(Math.min(1, Math.max(0.15, 0.62 * (1 - m.flick * 0.9) + (level ? 0.18 : 0))));
 }
 
-// --- статика на весь экран (в духе FNaF: зерно, строки помех, прокатывающаяся светлая полоса) ---
-function mfxDrawStatic(fx, burst) {
+// --- статика на весь экран: только лёгкое зерно и редкая строка, агрессивные помехи живут на мониторе ---
+function mfxDrawStatic(fx) {
   const s = fx.stat;
   if (!s) return;
   const { w, h, u32 } = s;
   const calm = fx.reduced;
-  const base = calm ? 0.035 : 0.12 + (burst ? 0.2 : 0);   // заметное зерно, на всплесках почти сплошная метель
-  const tear = new Set();                                  // рваные строки: ярче и плотнее остальных
-  if (!calm) {
-    const n = burst ? 7 + ((Math.random() * 7) | 0) : 1 + ((Math.random() * 3) | 0);
-    for (let k = 0; k < n; k++) {
-      const y0 = (Math.random() * h) | 0;
-      const th = 1 + ((Math.random() * (burst ? 4 : 2)) | 0);
-      for (let d = 0; d < th; d++) tear.add(Math.min(h - 1, y0 + d));
-    }
-  }
+  const base = calm ? 0.03 : 0.055;
+  const tear = new Set();                                  // 0–1 рваная строка
+  if (!calm && Math.random() < 0.5) tear.add((Math.random() * h) | 0);
   let i = 0;
   for (let y = 0; y < h; y++) {
     const bd = (y / h - fx.bandPos) / 0.12;
-    let k = fx.bandActive ? 1 + 1.6 * Math.exp(-bd * bd) : 1;   // бегущая светлая полоса, заметнее прежней
-    if (!calm && Math.random() < 0.012) k *= 2.2;                // светлые строки чаще
+    let k = fx.bandActive ? 1 + 0.8 * Math.exp(-bd * bd) : 1;   // бегущая светлая полоса
+    if (!calm && Math.random() < 0.006) k *= 1.8;
     const torn = tear.has(y);
-    if (torn) k *= 2.6;
+    if (torn) k *= 1.8;
     const a = Math.min(255, (base * k * 255) | 0);
     const lo = torn ? 150 : 70;
     const span = torn ? 105 : 170;
     for (let x = 0; x < w; x++) {
       const v = lo + ((Math.random() * span) | 0);
       u32[i++] = (a << 24) | (v << 16) | (v << 8) | v;
-    }
-  }
-  if (!calm) {
-    // цветные обрывки сигнала: красные и голубые блоки по одной-две строки, смещённые каналы
-    const blocks = burst ? 14 : 3;
-    for (let b = 0; b < blocks; b++) {
-      if (!burst && Math.random() < 0.5) continue;
-      const y = (Math.random() * h) | 0;
-      const bw = 8 + ((Math.random() * (burst ? 70 : 34)) | 0);
-      const x0 = (Math.random() * (w - bw)) | 0;
-      const rows = 1 + ((Math.random() * 2) | 0);
-      const color = Math.random() < 0.6 ? 0xdd2828ff : 0xdddcff3c;
-      for (let r = 0; r < rows && y + r < h; r++) {
-        const row = (y + r) * w + x0;
-        for (let x = 0; x < bw; x++) u32[row + x] = color;
-      }
-    }
-    // длинные белые «рваные» штрихи
-    const streaks = burst ? 6 : 1;
-    for (let b = 0; b < streaks; b++) {
-      if (!burst && Math.random() < 0.6) continue;
-      const y = (Math.random() * h) | 0;
-      const len = 20 + ((Math.random() * w * 0.6) | 0);
-      const x0 = (Math.random() * (w - len)) | 0;
-      for (let x = 0; x < len; x++) u32[y * w + x0 + x] = 0xf0fff4e6;
     }
   }
   s.cx.putImageData(s.img, 0, 0);
@@ -472,7 +485,7 @@ function mfxFrame(ts) {
 
   if (fx.reduced) {   // «уменьшить движение»: один статичный кадр
     if (!fx.staticDone) {
-      mfxDrawSmoke(fx, 4000); mfxDrawEmbers(fx, 0, 0); mfxDrawStatic(fx, false);
+      mfxDrawSmoke(fx, 4000); mfxDrawEmbers(fx, 0, 0); mfxDrawStatic(fx);
       fx.staticDone = true;
     }
     return;
@@ -489,41 +502,18 @@ function mfxFrame(ts) {
   const tickMs = fx.tickAcc;
   fx.tickAcc = 0;
 
-  if (ts >= fx.nextEvent) {
-    const r = Math.random();
-    fx.eventType = r < 0.3 ? 'roll' : r < 0.42 ? 'drop' : 'burst';
-    fx.eventUntil = ts + rand(450, 1000);
-    fx.nextEvent = ts + rand(3500, 8000);      // раньше 12–24 с: помехи теперь не заставляют ждать
-    fx.jolt = 2 + Math.floor(Math.random() * 3);
-    if (fx.eventType === 'roll' && fx.mon) fx.mon.roll = { p: 0, dur: 700 };
-  } else if (ts >= fx.microAt) {
-    fx.microUntil = ts + rand(90, 220);        // короткий срыв картинки между большими событиями
-    fx.microAt = ts + rand(900, 2600);
-    fx.jolt = Math.max(fx.jolt, 1);
-  }
-  const burst = ts < fx.eventUntil || ts < fx.microUntil;
-
   if (!fx.bandActive && ts >= fx.nextBand) { fx.bandActive = true; fx.bandPos = -0.15; fx.bandSpeed = rand(0.14, 0.3); }
   if (fx.bandActive) {
     fx.bandPos += fx.bandSpeed * tickMs / 1000;
     if (fx.bandPos > 1.2) { fx.bandActive = false; fx.nextBand = ts + rand(3500, 8000); }
   }
 
-  mfxTickMonitor(fx, tickMs, burst, fx.eventType);
-  fx.statAcc += tickMs;   // зерно ~20 к/с: резкое, живое (раньше ~8 к/с)
-  if (fx.statAcc >= 45) { fx.statAcc = 0; mfxDrawStatic(fx, burst); }
+  mfxTickMonitor(fx, tickMs);   // всплески, срывы и дрожь только на мониторе
+  fx.statAcc += tickMs;
+  if (fx.statAcc >= 60) { fx.statAcc = 0; mfxDrawStatic(fx); }
 
-  // дрожь картинки: сильнее, чем раньше, особенно на больших всплесках
-  if (fx.jolt > 0) {
-    const amp = ts < fx.eventUntil ? 4 : 2;
-    els.menuShake.style.transform = `translate(${rand(-amp, amp).toFixed(1)}px, ${rand(-amp * 0.6, amp * 0.6).toFixed(1)}px)`;
-    fx.jolt--;
-  } else if (els.menuShake.style.transform) {
-    els.menuShake.style.transform = '';
-  }
-
-  // мерцание яркости всего кадра
-  const fl = burst && fx.eventType === 'drop' && ts < fx.eventUntil ? 0.28 : (Math.random() < 0.04 ? rand(0.05, 0.14) : 0);
+  // едва заметное мерцание кадра, без дрожи всей картинки
+  const fl = Math.random() < 0.03 ? rand(0.03, 0.08) : 0;
   if (fl !== fx.flickLevel) { fx.flickLevel = fl; els.menuFlicker.style.opacity = String(fl); }
 }
 
@@ -532,8 +522,7 @@ function mfxStart() {
   const now = performance.now();
   const fx = {
     reduced: REDUCE, raf: 0, last: now, t: 0, smokeAcc: 0, tickAcc: 0,
-    nextEvent: now + 2500, eventUntil: 0, eventType: 'burst', jolt: 0, statAcc: 0,
-    microAt: now + 1200, microUntil: 0,
+    statAcc: 0,
     nextBand: now + 2500, bandActive: false, bandPos: -1, bandSpeed: 0.3,
     flickLevel: 0, staticDone: false,
   };
@@ -603,23 +592,23 @@ function pauseFxDraw(fx, burst, ts) {
   const { w, h, u32 } = fx;
   const calm = REDUCE;
   const drop = burst && fx.type === 'drop' && ts < fx.until;
-  const base = calm ? 0.05 : 0.08 + (burst ? 0.2 : 0);
+  const base = calm ? 0.04 : 0.06 + (burst ? 0.06 : 0);
   // красноватое зерно: канал R всегда сильнее G и B
   const tear = new Set();
   if (!calm) {
-    const n = burst ? 6 + ((Math.random() * 6) | 0) : (Math.random() < 0.5 ? 1 : 0);
+    const n = burst ? 1 + ((Math.random() * 3) | 0) : (Math.random() < 0.3 ? 1 : 0);
     for (let k = 0; k < n; k++) {
       const y0 = (Math.random() * h) | 0;
-      const th = 1 + ((Math.random() * (burst ? 3 : 1)) | 0);
+      const th = 1 + ((Math.random() * (burst ? 2 : 1)) | 0);
       for (let d = 0; d < th; d++) tear.add(Math.min(h - 1, y0 + d));
     }
   }
   let i = 0;
   for (let y = 0; y < h; y++) {
     const bd = (y / h - fx.bandPos) / 0.1;
-    let k = fx.bandActive ? 1 + 2.2 * Math.exp(-bd * bd) : 1;
+    let k = fx.bandActive ? 1 + 1.0 * Math.exp(-bd * bd) : 1;
     const torn = tear.has(y);
-    if (torn) k *= 2.8;
+    if (torn) k *= 1.8;
     const a = Math.min(255, (base * k * 255) | 0);
     for (let x = 0; x < w; x++) {
       const v = (torn ? 130 : 60) + ((Math.random() * (torn ? 125 : 170)) | 0);
@@ -629,13 +618,13 @@ function pauseFxDraw(fx, burst, ts) {
   }
   if (!calm) {
     // «битые» блоки: красные и чёрные обрывки кадра
-    const blocks = burst ? 12 : 2;
+    const blocks = burst ? 3 : 0;
     for (let b = 0; b < blocks; b++) {
       if (!burst && Math.random() < 0.6) continue;
       const y = (Math.random() * h) | 0;
-      const bw = 10 + ((Math.random() * (burst ? 90 : 40)) | 0);
+      const bw = 8 + ((Math.random() * 30) | 0);
       const x0 = (Math.random() * (w - bw)) | 0;
-      const rows = 1 + ((Math.random() * (burst ? 4 : 2)) | 0);
+      const rows = 1;
       const color = Math.random() < 0.55 ? 0xd01818ff : 0xe6000000;
       for (let r = 0; r < rows && y + r < h; r++) {
         const row = (y + r) * w + x0;
@@ -645,7 +634,7 @@ function pauseFxDraw(fx, burst, ts) {
   }
   if (drop) {
     // провал кадра: всё на миг темнеет
-    for (let p = 0; p < u32.length; p++) if (((u32[p] >>> 24) & 255) < 190) u32[p] = 0xb4000000 | (u32[p] & 0xff);
+    for (let p = 0; p < u32.length; p++) if (((u32[p] >>> 24) & 255) < 190) u32[p] = 0x78000000 | (u32[p] & 0xff);
   }
   fx.cx.putImageData(fx.img, 0, 0);
 }
@@ -666,14 +655,14 @@ function pauseFxFrame(ts) {
 
   if (ts >= fx.nextEvent) {
     const r = Math.random();
-    fx.type = r < 0.2 ? 'drop' : 'burst';
-    fx.until = ts + rand(350, 850);
-    fx.nextEvent = ts + rand(2200, 5200);
-    fx.codeUntil = ts + rand(300, 700);
+    fx.type = r < 0.15 ? 'drop' : 'burst';
+    fx.until = ts + rand(200, 450);
+    fx.nextEvent = ts + rand(5000, 10000);
+    fx.codeUntil = ts + rand(250, 500);
     fx.codeShown = false;
   } else if (ts >= fx.microAt) {
-    fx.microUntil = ts + rand(80, 200);
-    fx.microAt = ts + rand(600, 1800);
+    fx.microUntil = ts + rand(60, 140);
+    fx.microAt = ts + rand(2500, 6000);
   }
   const burst = ts < fx.until || ts < fx.microUntil;
 
@@ -682,22 +671,22 @@ function pauseFxFrame(ts) {
   const tickMs = fx.acc;
   fx.acc = 0;
 
-  if (!fx.bandActive && ts >= fx.nextBand) { fx.bandActive = true; fx.bandPos = -0.15; fx.bandSpeed = rand(0.25, 0.5); }
+  if (!fx.bandActive && ts >= fx.nextBand) { fx.bandActive = true; fx.bandPos = -0.15; fx.bandSpeed = rand(0.18, 0.32); }
   if (fx.bandActive) {
     fx.bandPos += fx.bandSpeed * tickMs / 1000;
-    if (fx.bandPos > 1.2) { fx.bandActive = false; fx.nextBand = ts + rand(1800, 4500); }
+    if (fx.bandPos > 1.2) { fx.bandActive = false; fx.nextBand = ts + rand(3500, 8000); }
   }
   pauseFxDraw(fx, burst, ts);
 
   // панель дрожит и «срывается» на всплесках; заголовок расслаивается
   const big = ts < fx.until;
-  if (burst) {
-    const amp = big ? 7 : 3;
-    els.pausePanel.style.transform = `translate(${rand(-amp, amp).toFixed(1)}px, ${rand(-amp * 0.3, amp * 0.3).toFixed(1)}px) skewX(${(rand(-1, 1) * (big ? 3 : 1)).toFixed(1)}deg)`;
+  if (big) {
+    const amp = 1.5;
+    els.pausePanel.style.transform = `translate(${rand(-amp, amp).toFixed(1)}px, 0)`;
   } else if (els.pausePanel.style.transform) {
     els.pausePanel.style.transform = '';
   }
-  els.pauseTitle.classList.toggle('is-glitch', burst);
+  els.pauseTitle.classList.toggle('is-glitch', big);
 
   // обрывок служебного кода в случайном месте экрана
   const codeOn = ts < fx.codeUntil;
@@ -706,7 +695,7 @@ function pauseFxFrame(ts) {
     els.pauseCode.style.left = `${rand(4, 70).toFixed(0)}%`;
     els.pauseCode.style.top = `${rand(6, 90).toFixed(0)}%`;
   }
-  els.pauseCode.style.opacity = codeOn ? String(rand(0.45, 1).toFixed(2)) : '0';
+  els.pauseCode.style.opacity = codeOn ? String(rand(0.3, 0.6).toFixed(2)) : '0';
 }
 
 function layoutMenuArt() {
@@ -1358,6 +1347,7 @@ function showSettings(returnTo) {
 function syncMenu(state, t) {
   const pending = state.progress.minigamePending !== null;
   const hasProgress = state.night > 1 || pending || state.progress.gameComplete;
+  els.menuDemo.textContent = t('ui.demo');
   els.menuTitle.textContent = t('ui.title');
   els.menuSubtitle.textContent = t('menu.subtitle');
   els.loadBtn.textContent = els.hasSave
@@ -1464,6 +1454,7 @@ export function mount(rootEl, ctx) {
   const menuPanel = el('div', 'menu-panel', els.menu);
   els.hasSave = ctx.hasSave;
   els.menuMain = el('div', 'menu-main', menuPanel);
+  els.menuDemo = el('span', 'menu-demo', els.menuMain);
   els.menuTitle = el('h1', 'menu-title', els.menuMain);
   els.menuSubtitle = el('p', 'menu-subtitle', els.menuMain);
   els.menuNotice = el('p', 'menu-notice', els.menuMain);
@@ -1575,8 +1566,10 @@ export function mount(rootEl, ctx) {
   els.failedScreen.setAttribute('aria-modal', 'true');
   els.failedGhost = el('div', 'shift-failed__ghost', els.failedScreen);
   const failedBlood = el('div', 'shift-failed__blood', els.failedScreen);
-  const DRIPS = [[6, 10, 34, 0, 6], [17, 6, 52, 0.8, 8], [29, 14, 26, 0.3, 5], [41, 8, 60, 1.4, 9], [52, 12, 40, 0.6, 7],
-    [63, 7, 70, 0.2, 10], [74, 16, 30, 1.1, 6], [86, 9, 48, 0.5, 8], [94, 6, 38, 1.7, 7]];
+  // [x %, ширина px, длина % высоты, задержка с, длительность с]: разной толщины и скорости, без ровного ритма
+  const DRIPS = [[4, 3, 22, 0.4, 13], [9, 7, 38, 0, 17], [15, 4, 27, 2.1, 15], [23, 9, 54, 0.9, 21], [31, 3, 18, 3.4, 12],
+    [38, 5, 36, 1.6, 16], [47, 8, 63, 0.2, 23], [53, 3, 24, 2.8, 14], [61, 6, 44, 1.2, 18], [68, 4, 30, 4.0, 15],
+    [76, 9, 58, 0.6, 22], [83, 3, 20, 2.4, 13], [89, 6, 41, 1.9, 17], [95, 4, 28, 3.1, 14]];
   for (const [x, w, len, delay, dur] of DRIPS) {
     const drip = el('i', '', failedBlood);
     drip.style.cssText = `--x:${x}%;--w:${w}px;--len:${len}%;--delay:${delay}s;--dur:${dur}s`;

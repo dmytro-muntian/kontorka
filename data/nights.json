@@ -132,7 +132,9 @@
       "silenceSec": 2.5,
       "reportAfterSec": 2,
       "phantomAfterSec": 5,
-      "holdSec": 4.5
+      "holdSec": 4.5,
+      "afterCardSec": 1.5,
+      "music": "amb_menu"
     }
   }
 }
