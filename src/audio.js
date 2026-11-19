@@ -12,6 +12,11 @@ const buffers = {};     // id -> AudioBuffer
 let ambient = [];       // [{ id, handle }]
 const soundLoads = new Map(); // id -> Promise<AudioBuffer | null>
 const htmlHandles = new Set();
+// Звуки паузы идут через <audio>, потому что игровой AudioContext остановлен. У <audio> громкость на iPhone менять нельзя
+// (element.volume там не работает), поэтому они проходят через отдельный, никогда не останавливаемый контекст
+// со своим мастер-гейном: ползунок громкости действует на все звуки, в том числе на меню и интерфейс паузы.
+let htmlCtx = null;
+let htmlMaster = null;
 const liveHandles = new Set();   // запущенные звуки каталога (нужны, чтобы погасить их при отключении питания)
 const activeCalls = new Set();   // запущенные записи звонков
 
@@ -105,10 +110,40 @@ export function setMasterVolume(value) {
     return;
   }
   masterVolume = Math.max(0, Math.min(1, volume));
-  if (master) master.gain.setTargetAtTime(masterVolume, ctx.currentTime, 0.02);
+  applyGain(master, ctx);
+  applyGain(htmlMaster, htmlCtx);
   for (const handle of htmlHandles) {
-    handle._audio.volume = Math.min(1, masterVolume * (handle._opts.volume ?? 1) * (handle._def.volume ?? 1));
+    if (!handle._node) handle._audio.volume = Math.min(1, masterVolume * (handle._opts.volume ?? 1) * (handle._def.volume ?? 1));
   }
+}
+
+// Громкость сразу, а не «когда контекст дойдёт до этого времени»: контекст на паузе остановлен, и плавный переход
+// setTargetAtTime применился бы только после возобновления.
+function applyGain(node, context) {
+  if (!node || !context) return;
+  try {
+    node.gain.cancelScheduledValues(context.currentTime);
+    node.gain.setValueAtTime(masterVolume, context.currentTime);
+  } catch (e) {
+    node.gain.value = masterVolume;
+  }
+}
+
+function ensureHtmlBus() {
+  if (htmlMaster) return htmlMaster;
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return null;
+  try {
+    htmlCtx = new AC();
+    htmlMaster = htmlCtx.createGain();
+    htmlMaster.gain.value = masterVolume;
+    htmlMaster.connect(htmlCtx.destination);
+  } catch (e) {
+    console.warn('audio: не удалось создать шину звуков паузы, громкость берётся из <audio>', e);
+    htmlCtx = null;
+    htmlMaster = null;
+  }
+  return htmlMaster;
 }
 
 // Читает каталог звуков (вызывается при загрузке игры, до касания).
@@ -220,8 +255,26 @@ function playPausedHtml(soundId, def, opts) {
     _audio: src,
     stop() { stopHandle(handle); },
   };
+  // Через шину паузы: общий мастер-гейн (работает и на iPhone) и усиление звука выше 1, как в игровом контексте.
+  const bus = ensureHtmlBus();
+  if (bus) {
+    try {
+      if (htmlCtx.state !== 'running') htmlCtx.resume().catch(() => {});
+      const node = htmlCtx.createGain();
+      node.gain.value = (opts.volume ?? 1) * (def.volume ?? 1);
+      htmlCtx.createMediaElementSource(src).connect(node);
+      node.connect(bus);
+      src.volume = 1;
+      handle._node = node;
+    } catch (e) {
+      console.warn(`audio: «${soundId}» не подключён к шине паузы`, e);
+    }
+  }
   htmlHandles.add(handle);
-  src.addEventListener('ended', () => htmlHandles.delete(handle), { once: true });
+  src.addEventListener('ended', () => {
+    htmlHandles.delete(handle);
+    try { handle._node?.disconnect(); } catch (e) { /* уже отключён */ }
+  }, { once: true });
   src.play().catch((e) => {
     htmlHandles.delete(handle);
     if (!stopped.has(handle)) console.warn(`audio: не удалось воспроизвести «${soundId}»`, e);
@@ -298,6 +351,7 @@ function stopHandle(handle) {
     handle._audio.pause();
     handle._audio.currentTime = 0;
     htmlHandles.delete(handle);
+    try { handle._node?.disconnect(); } catch (e) { /* уже отключён */ }
     return;
   }
   try { handle._src?.stop(); } catch (e) { /* уже остановлен */ }

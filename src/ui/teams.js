@@ -557,7 +557,7 @@ function renderChats() {
   const dial = el('button', 'tm-callbtn tm-chat__dial', header);
   dial.type = 'button';
   dial.textContent = T('calls.button.dial');
-  onPress(dial, () => { if (E) E('intent:dial', { contact: 'phoneGuy' }); });
+  onPress(dial, () => { if (E) E('intent:dial', { contact: 'unknown' }); });
 
   const messages = el('div', 'tm-chat__messages', chat);
   const entries = chatHistory;

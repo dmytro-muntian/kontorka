@@ -157,8 +157,8 @@
     ]
   },
   "contacts": {
-    "phoneGuy": {
-      "name": "calls.contact.phoneGuy",
+    "unknown": {
+      "name": "calls.caller.unknown",
       "ringSec": 20,
       "noAnswerSec": 2.5,
       "answerNight": 5,

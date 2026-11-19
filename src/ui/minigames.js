@@ -201,7 +201,7 @@ function showComplete(payload) {
     weightTotal: payload.score.weightTotal,
   });
   updateQueue();
-  button(night === 5 ? 'minigame.complete.finish' : 'minigame.complete.next', () => emit('intent:minigameFinish'));
+  button(payload.final ? 'minigame.complete.finish' : 'minigame.complete.next', () => emit('intent:minigameFinish'));
   show();
 }
 
@@ -211,15 +211,16 @@ function showEnding({ ending, score }) {
   els.timer.hidden = true;
   els.timerLabel.hidden = true;
   els.headerStatus.textContent = t('minigame.ending.status');
-  els.title.textContent = t(ending === 'good' ? 'minigame.ending.good' : 'minigame.ending.bad');
+  const kind = ending === 'good' || ending === 'bad' ? ending : 'demo';
+  els.title.textContent = t(`minigame.ending.${kind}`);
   els.content.className = 'mg-content is-ending';
-  el('p', 'mg-copy', els.content).textContent = t(
-    ending === 'good' ? 'minigame.ending.good.copy' : 'minigame.ending.bad.copy',
-  );
-  el('p', 'mg-copy', els.content).textContent = t('minigame.complete.score', {
-    correct: score.correct,
-    total: score.total,
-  });
+  el('p', 'mg-copy', els.content).textContent = t(`minigame.ending.${kind}.copy`);
+  if (kind !== 'demo') {
+    el('p', 'mg-copy', els.content).textContent = t('minigame.complete.score', {
+      correct: score.correct,
+      total: score.total,
+    });
+  }
   els.queue.replaceChildren();
   els.queueCount.textContent = '';
   button('minigame.ending.menu', () => emit('intent:endingClose'));

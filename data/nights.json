@@ -59,7 +59,7 @@
         ],
         "lure": {
           "callSec": 8,
-          "cooldownSec": 25,
+          "cooldownSec": 45,
           "reactSec": [
             1,
             2
@@ -68,10 +68,12 @@
             2.2,
             3.2
           ],
-          "maxStepsGood": 6,
-          "maxStepsMid": 3,
-          "lingerGoodSec": 12,
-          "lingerMidSec": 6
+          "maxStepsGood": 4,
+          "maxStepsMid": 2,
+          "lingerGoodSec": 8,
+          "lingerMidSec": 4,
+          "fatigueWindowSec": 90,
+          "tokenCost": 2
         },
         "attack": {
           "dwellSec": 10,

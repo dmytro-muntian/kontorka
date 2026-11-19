@@ -17,8 +17,10 @@ const DEFAULTS = {
   hourFactor: [1.0, 0.85, 0.7], overloadFactor: 0.8, openTicketFactor: 0.9,
   appetiteFactorMax: 0.3,
   toiletStaySec: [15, 25], breakChance: 0.05, breakSec: [20, 30],
-  lure: { callSec: 8, cooldownSec: 25, reactSec: [1, 2], stepSec: [2.2, 3.2], maxStepsGood: 6, maxStepsMid: 3,
-    lingerGoodSec: 12, lingerMidSec: 6 },
+  // Приманка ослаблена (плейтест: звонить можно было везде и постоянно): дальше «усталость» врага от частых звонков
+  // (fatigueWindowSec), перезарядка и цена в токенах (tokenCost, читает main.js) лежат в nights.json.
+  lure: { callSec: 8, cooldownSec: 45, reactSec: [1, 2], stepSec: [2.2, 3.2], maxStepsGood: 4, maxStepsMid: 2,
+    lingerGoodSec: 8, lingerMidSec: 4, fatigueWindowSec: 90, tokenCost: 2 },
   attack: { dwellSec: 10, warningToJumpscareSec: [3, 5] },
   slaGood: 60, slaBad: 40, whistleChancePer10s: 0.1,
   doorKnockSec: [1.8, 2.6],   // пауза между стуком и входом с южного этажа в зал
@@ -297,6 +299,7 @@ export function create(cfg, ctx) {
   // а дойдя (или пройдя максимум шагов) осматривается, и только потом возвращается к обычному ритму.
   const NO_GO = new Set(['desk', 'n_toilet', 's_toilet', 's_stairs']);   // сюда он по звонку не ходит
   let lure = null;          // { path, stage: 'react' | 'walk' | 'linger', lingerSec }
+  let lureTimes = [];       // когда звонили недавно (state.time): каждый звонок в окне fatigueWindowSec сокращает путь на шаг
 
   // Кратчайший путь от текущей позиции к ближайшей доступной точке к месту звонка (без начальной позиции).
   function routeTo(target) {
@@ -332,6 +335,11 @@ export function create(cfg, ctx) {
     const mid = !good && sla >= C.slaBad;
     if (!good && !mid) { pauseMul = 0.9; return; }   // не отвлекает, но следующая пауза короче на 10%
 
+    const now = state.time;
+    lureTimes = lureTimes.filter((ts) => now - ts <= C.lure.fatigueWindowSec);
+    const fatigue = lureTimes.length;
+    lureTimes.push(now);
+
     const path = routeTo(at);
     if (!path) return;
     // Звонят в той самой комнате, где он уже стоит в окне атаки: звонок ничего не меняет (таймер не сбрасываем).
@@ -340,7 +348,7 @@ export function create(cfg, ctx) {
     returning = false;
     goFloor = false;
     lure = {
-      path: path.slice(0, good ? C.lure.maxStepsGood : C.lure.maxStepsMid),
+      path: path.slice(0, Math.max(1, (good ? C.lure.maxStepsGood : C.lure.maxStepsMid) - fatigue)),
       stage: 'react',
       lingerSec: good ? C.lure.lingerGoodSec : C.lure.lingerMidSec,
     };

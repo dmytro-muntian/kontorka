@@ -8,7 +8,7 @@
 // События: call:incoming {id}; call:start {id, kind}; call:end {id, kind, outcome}
 // (outcome: 'finished' | 'hungup' | 'declined' | 'missed'); subtitle {key | null}.
 //
-// Вызов «Ночного коллеги» (kind 'dial', intent:dial из чата Teams): dialing (гудки call_ringback, ringSec) -> noanswer
+// Исходящий вызов неизвестному абоненту, он же пятый (kind 'dial', intent:dial из его чата в Teams): dialing (гудки call_ringback, ringSec) -> noanswer
 // (показ «Нет ответа», noAnswerSec) -> конец. В ночь answerNight через answerAfterSec берут трубку (connected, call_pickup,
 // молчат, flags.fifthAnswered) до intent:hangUpCall. Токены и нагрузку не тратит; при 0% токенов обрывается.
 
@@ -21,7 +21,7 @@ let ringSnd = null;  // рингтон Teams
 let rec = null;      // handle записи
 let scale = 1;       // подгонка субтитров под длину mp3
 // Контакты для вызова (data/calls.json, ключ contacts; значения по умолчанию на случай, если ключа нет).
-let contacts = { phoneGuy: { name: 'calls.contact.phoneGuy', ringSec: 20, noAnswerSec: 2.5, answerNight: 5, answerAfterSec: 9 } };
+let contacts = { unknown: { name: 'calls.caller.unknown', ringSec: 20, noAnswerSec: 2.5, answerNight: 5, answerAfterSec: 9 } };
 
 // data/calls.json: записи по id (call_n1…).
 export function load(data) {
@@ -66,7 +66,7 @@ function endPhone(outcome, { silent = false } = {}) {
 }
 
 // ---------- вызов контакта ----------
-function startDial(contactId = 'phoneGuy') {
+function startDial(contactId = 'unknown') {
   const cfg = contacts[contactId];
   if (!cfg || !state.running || state.tokens <= 0 || state.phone.status !== 'idle') return;
   set('phone', { status: 'dialing', kind: 'dial', id: contactId, name: cfg.name, t: 0, sub: null });

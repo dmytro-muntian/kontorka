@@ -20,6 +20,26 @@ const ENEMY_MODULES = { mr404 };   // id врага из nights.json -> моду
 
 const MAX_DT = 0.1; // секунды
 const NIGHT_SEC = 360;
+
+// Демо: кампания останавливается после мини-игры этой ночи экраном «Конец демо», ночи дальше недоступны.
+// Отладочная панель (window.__kontorka) снимает блок, чтобы тестировать ночи 2–5.
+const DEMO_LAST_NIGHT = 1;
+const demoLocked = () => !window.__kontorka;
+const endingId = () => state.flags.ending ?? 'demo';
+
+function finishDemo() {
+  set('night', DEMO_LAST_NIGHT);
+  set('flags', { ...state.flags, demoDone: true, ending: null });
+  set('progress', { completedNight: DEMO_LAST_NIGHT, minigamePending: null, minigameIndex: 0, gameComplete: true, summary: null });
+  save();
+}
+
+// Старые сохранения (ночь 2+ или мини-игра ночи 2+) тоже закрываются: остаётся только экран конца демо.
+function enforceDemoLimit() {
+  if (!demoLocked() || state.progress.gameComplete) return;
+  const pending = state.progress.minigamePending;
+  if (state.night > DEMO_LAST_NIGHT || (pending !== null && pending > DEMO_LAST_NIGHT)) finishDemo();
+}
 const SETTINGS_KEY = 'kontorka.settings.v1';
 
 function detectDeviceLanguage() {
@@ -83,8 +103,9 @@ on('tick', ({ dt }) => {
 // ---------- намерения интерфейса ----------
 on('intent:startShift', () => {
   if (state.running) return;
+  enforceDemoLimit();
   if (state.progress.gameComplete) {
-    emit('ending:show', { ending: state.flags.ending, score: state.mgScore });
+    emit('ending:show', { ending: endingId(), score: state.mgScore });
     return;
   }
   if (state.progress.minigamePending !== null) {
@@ -101,9 +122,10 @@ on('intent:loadGame', () => {
     return;
   }
   audio.init();
+  enforceDemoLimit();
   fadeThrough(() => {
     if (state.progress.gameComplete) {
-      emit('ending:show', { ending: state.flags.ending, score: state.mgScore });
+      emit('ending:show', { ending: endingId(), score: state.mgScore });
     } else if (state.progress.minigamePending !== null) {
       resumeMinigame();
     } else {
@@ -333,6 +355,7 @@ on('intent:minigameAnswer', ({ optionId = null, timeout = false } = {}) => {
   const isComplete = nextIndex >= game.requests.length;
   emit(isComplete ? 'minigame:complete' : 'minigame:answer', {
     night,
+    final: night >= 5 || (demoLocked() && night >= DEMO_LAST_NIGHT),
     outcome,
     index,
     nextIndex,
@@ -344,6 +367,11 @@ on('intent:minigameAnswer', ({ optionId = null, timeout = false } = {}) => {
 on('intent:minigameFinish', () => {
   const night = state.progress.minigamePending;
   if (night === null || state.progress.minigameIndex < (gameForNight(night)?.requests?.length ?? Infinity)) return;
+  if (demoLocked() && night >= DEMO_LAST_NIGHT) {
+    finishDemo();
+    fadeThrough(() => emit('ending:show', { ending: 'demo', score: state.mgScore }));
+    return;
+  }
   if (night < 5) {
     set('progress', { completedNight: night, minigamePending: null, minigameIndex: 0, gameComplete: false, summary: null });
     set('night', night + 1);
@@ -423,6 +451,12 @@ on('intent:call', () => {
   const dwelling = Object.values(state.enemies).some((e) => e.dwell);
   if (state.call.active || (state.call.cooldown > 0 && !dwelling)) return;
   if (dwelling) set('call.cooldown', 0);
+  // Цена звонка в токенах (проценты сразу, копятся в аппетите ИИ): звонок нельзя пулять бесплатно.
+  const cost = Math.min(state.tokens, lureCfg().tokenCost ?? 0);
+  if (cost > 0) {
+    set('tokens', state.tokens - cost);
+    set('appetite', state.appetite + cost);
+  }
   set('call.active', true);
   set('call.left', lureCfg().callSec ?? 8);
   set('call.at', at);
@@ -778,6 +812,7 @@ async function boot() {
   }
 
   const hasSave = load();
+  if (hasSave) enforceDemoLimit();
   appCtx = { state, t, emit, on, settings, hasSave };
   desk.mount(document.getElementById('app'), appCtx);
   cameras.mount(document.getElementById('monitor-left'), appCtx);
@@ -786,7 +821,7 @@ async function boot() {
   initDebug();
 
   if (state.progress.gameComplete) {
-    emit('ending:show', { ending: state.flags.ending, score: state.mgScore });
+    emit('ending:show', { ending: endingId(), score: state.mgScore });
   }
 
   requestAnimationFrame(frame);
