@@ -160,8 +160,8 @@ on('intent:repairEnd', stopHold);
 on('intent:reboot', ({ cam } = {}) => {
   if (!state.running || state.tokens <= 0 || rebooting.has(cam) || !state.brokenCams.includes(cam)) return;
   const durationSec = data?.types?.camera?.holdSec ?? 2;
-  rebooting.set(cam, durationSec);
-  emit('camera:rebooting', { cam, durationSec });
+  rebooting.set(cam, { left: durationSec, durationSec });
+  emit('camera:rebooting', { cam, durationSec, progress: 0 });
 });
 
 // ---------- каждый кадр ----------
@@ -189,8 +189,16 @@ export function update(dt) {
   }
 
   // перезагрузка камер
-  for (const [cam, left] of [...rebooting]) {
-    if (left - dt > 0) { rebooting.set(cam, left - dt); continue; }
+  for (const [cam, reboot] of [...rebooting]) {
+    const left = reboot.left - dt;
+    if (left > 0) {
+      reboot.left = left;
+      emit('camera:rebootProgress', {
+        cam,
+        progress: Math.min(1, 1 - left / reboot.durationSec),
+      });
+      continue;
+    }
     rebooting.delete(cam);
     set('brokenCams', state.brokenCams.filter((c) => c !== cam));
     emit('camera:rebooted', { cam });

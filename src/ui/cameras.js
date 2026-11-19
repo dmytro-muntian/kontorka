@@ -22,6 +22,7 @@ let E = null;          // emit()
 let holdId = null;     // тикет, кнопку починки которого сейчас удерживают
 let repairSig = '';    // что сейчас нарисовано в слое кнопок починки
 let repairBtns = new Map();   // id тикета -> { btn, fill }
+const rebootProgress = new Map();
 let shown = null;      // номер камеры на экране или null (карта)
 let noiseTimer = null;
 let aiTextTtl = 0;
@@ -168,11 +169,21 @@ function buildView(parent, ctx) {
   el('div', 'cam-error__title', els.error).textContent = T('cams.broken.error');
   els.reboot = el('button', 'cam-error__btn', els.error);
   els.reboot.type = 'button';
-  els.reboot.textContent = T('cams.broken.reboot');
+  els.rebootLabel = el('span', '', els.reboot);
+  els.rebootLabel.textContent = T('cams.broken.reboot');
+  els.rebootProgress = svg('svg', {
+    class: 'cam-error__progress',
+    viewBox: '0 0 100 100',
+    preserveAspectRatio: 'none',
+    'aria-hidden': 'true',
+  }, els.reboot);
+  const progressOutline = svg('rect', {
+    x: 1, y: 1, width: 98, height: 98, rx: 4, pathLength: 100,
+  }, els.rebootProgress);
+  progressOutline.style.strokeDasharray = '100';
+  progressOutline.style.strokeDashoffset = '100';
   onPress(els.reboot, () => {
     if (shown === null || els.reboot.disabled) return;
-    els.reboot.disabled = true;
-    els.reboot.textContent = T('cams.broken.rebooting');
     emit('intent:reboot', { cam: shown });
   });
 
@@ -244,13 +255,19 @@ function flash() {
 
 const isBroken = (cam) => S.brokenCams.includes(cam);
 
-function applyBroken(broken, resetBtn) {
+function applyBroken(broken) {
   els.frame.classList.toggle('is-broken', broken);
   els.error.hidden = !broken;
-  if (resetBtn || !broken) {
-    els.reboot.disabled = false;
-    els.reboot.textContent = T('cams.broken.reboot');
-  }
+  syncRebootButton();
+}
+
+function syncRebootButton() {
+  const progress = shown === null ? undefined : rebootProgress.get(shown);
+  const rebooting = progress !== undefined;
+  els.reboot.disabled = rebooting;
+  els.rebootLabel.textContent = T(rebooting ? 'cams.broken.rebooting' : 'cams.broken.reboot');
+  els.reboot.classList.toggle('is-rebooting', rebooting);
+  els.rebootProgress.firstElementChild.style.strokeDashoffset = String(100 * (1 - (progress ?? 0)));
 }
 
 function setText(key, node, text) {
@@ -547,7 +564,7 @@ function showView(cam) {
     setText('name', els.hudName, T('cams.caption', { n: cam, name: T(meta.name) }));
     for (const [c, b] of Object.entries(els.sbtns)) b.classList.toggle('cam-sbtn--active', Number(c) === cam);
     els.broken = isBroken(cam);
-    applyBroken(els.broken, true);
+    applyBroken(els.broken);
     syncHud();
     flash();
   }
@@ -626,7 +643,27 @@ export function mount(rootEl, ctx) {
   offs = [
     on('camera:open', refresh),
     on('camera:close', refresh),
-    on('night:start', resetGlitches),
+    on('night:start', () => {
+      rebootProgress.clear();
+      resetGlitches();
+      syncRebootButton();
+    }),
+    on('camera:rebooting', ({ cam, progress = 0 }) => {
+      rebootProgress.set(cam, progress);
+      if (shown === cam) syncRebootButton();
+    }),
+    on('camera:rebootProgress', ({ cam, progress }) => {
+      rebootProgress.set(cam, progress);
+      if (shown === cam) syncRebootButton();
+    }),
+    on('camera:rebooted', ({ cam }) => {
+      rebootProgress.delete(cam);
+      if (shown === cam) syncRebootButton();
+    }),
+    on('night:end', () => {
+      rebootProgress.clear();
+      syncRebootButton();
+    }),
     on('debug:highlight', highlight),
     on('debug:flash', () => { if (shown !== null) flash(); }),
     on('debug:sprite', ({ pos, cam, x, y, scale, pose, light, edge }) => {
@@ -663,7 +700,7 @@ export function mount(rootEl, ctx) {
       const broken = isBroken(shown);
       if (broken !== els.broken) {
         els.broken = broken;
-        applyBroken(broken, false);
+        applyBroken(broken);
       }
     }),
   ];
@@ -690,5 +727,6 @@ export function unmount() {
   sprSig = '';
   repairBtns = new Map();
   repairSig = '';
+  rebootProgress.clear();
   holdId = null;
 }
