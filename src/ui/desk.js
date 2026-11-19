@@ -1209,6 +1209,7 @@ function updateScare(dt, ctx) {
 // Играет через audio.play (петля «в голове»), на старте смены гасится.
 function startMenuMusic() {
   if (!menuAudioUnlocked || els.menuMusic || !els.menu || els.menu.hidden
+    || els.musicBlocked    // идёт ночь, утро или итог смены: музыка меню только после возврата в меню
     || els.menu.classList.contains('is-pause-settings')) return;
   audio.init();   // создаёт контекст при первом показе меню
   els.menuMusic = audio.play('amb_menu', { loop: true }) || null;
@@ -1299,6 +1300,7 @@ function showShiftFailed(ctx, enemyId) {
 }
 
 function showMainMenu(ctx) {
+  els.musicBlocked = false;
   stopPauseMusic();
   audio.setPaused(false);
   els.gameActive = false;
@@ -1732,6 +1734,8 @@ export function mount(rootEl, ctx) {
     }),
     // Утро (main.js ведёт ход, здесь только оформление): часы 5 AM → 6 AM, рассвет, табель смен.
     on('morning:start', () => {
+      els.musicBlocked = true;
+      stopMenuMusic();
       els.morningWait = true;
       shownText = '';
       els.stage.classList.remove('is-dawn');
@@ -1773,6 +1777,7 @@ export function mount(rootEl, ctx) {
     on('camera:open', syncCam),
     on('camera:close', syncCam),
     on('night:start', () => {
+      els.musicBlocked = true;
       stopPauseMusic();
       stopMenuMusic();
       els.gameActive = true;
@@ -1798,6 +1803,8 @@ export function mount(rootEl, ctx) {
       els.menu.hidden = true;
     }),
     on('night:end', ({ failed }) => {
+      els.musicBlocked = true;
+      stopMenuMusic();
       if (failed) return;
       els.gameActive = false;
       updatePauseButton();

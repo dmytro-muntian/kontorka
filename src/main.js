@@ -21,10 +21,9 @@ const ENEMY_MODULES = { mr404 };   // id врага из nights.json -> моду
 const MAX_DT = 0.1; // секунды
 const NIGHT_SEC = 360;
 
-// Демо: кампания останавливается после мини-игры этой ночи экраном «Конец демо», ночи дальше недоступны.
-// Отладочная панель (window.__kontorka) снимает блок, чтобы тестировать ночи 2–5.
+// Демо-сборка всегда останавливается после первой ночи экраном «Конец демо».
 const DEMO_LAST_NIGHT = 1;
-const demoLocked = () => !window.__kontorka;
+const demoLocked = () => true;
 const endingId = () => state.flags.ending ?? 'demo';
 
 function finishDemo() {
@@ -179,6 +178,8 @@ on('intent:returnMainMenu', () => {
 });
 
 function launchNight() {
+  enforceDemoLimit();
+  if (state.night > DEMO_LAST_NIGHT || state.progress.gameComplete) return;
   gamePaused = false;
   pausedShift = false;
   last = null;
@@ -246,7 +247,7 @@ function resumeMinigame() {
 // лишнее уведомление пятого → табель смен → затемнение в мини-игру. Тайминги в data/nights.json, блок morning.
 // music: звук-петля, которая включается сразу в момент 6 AM вместе с курантами и играет до конца мини-игры (null: без музыки).
 // afterCardSec: сколько табель смен висит до перехода к статистике. Куранты на переход не ждём: они доигрывают поверх.
-const MORNING_DEFAULTS = { silenceSec: 2.5, reportAfterSec: 2, phantomAfterSec: 5, holdSec: 4.5, afterCardSec: 1.5, music: 'amb_menu' };
+const MORNING_DEFAULTS = { silenceSec: 2.5, reportAfterSec: 2, phantomAfterSec: 8, holdSec: 11, afterCardSec: 4, music: null };
 let morning = null;
 let morningMusic = null;
 function stopMorningMusic() { if (morningMusic) { audio.stop(morningMusic); morningMusic = null; } }
@@ -274,7 +275,9 @@ on('tick', ({ dt }) => {
   if (m.step === 0 && m.t >= c.silenceSec) {
     m.step = 1;
     emit('morning:flip', { n: m.n });
-    audio.play('night_end_chime');
+    const chime = audio.play('night_end_chime');
+    m.chimeDone = !chime;
+    chime?.finished?.then(() => { m.chimeDone = true; });
     if (c.music) morningMusic = audio.play(c.music, { loop: true });   // музыка сразу с 6 утра, без тишины после курантов
   }
   if (m.step === 1 && m.t >= c.silenceSec + c.reportAfterSec) {
@@ -289,7 +292,9 @@ on('tick', ({ dt }) => {
     m.step = 4;
     emit('morning:card', { n: m.n });
   }
-  if (m.step === 4 && m.t >= c.silenceSec + c.holdSec + c.afterCardSec) {
+  const cardEnd = c.silenceSec + c.holdSec + c.afterCardSec;
+  // куранты доигрывают до конца (но не дольше 6 с сверх времени табеля), и только потом затемнение
+  if (m.step === 4 && m.t >= cardEnd && (m.chimeDone || m.t >= cardEnd + 6)) {
     morning = null;
     fadeThrough(() => resumeMinigame(), { out: 900 });
   }

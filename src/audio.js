@@ -181,14 +181,20 @@ function loadSound(def) {
   return pending;
 }
 
+// Эти звуки нужны сразу после первого касания (меню). Грузим их первыми и в одиночку,
+// остальной каталог (около 30 файлов) начинает качаться только после них, чтобы не делить канал.
+const PRIORITY_SOUNDS = ['amb_menu', 'ui_click_menu'];
+
 function decodeAll() {
   if (!ctx) return Promise.resolve();
   const todo = Object.values(catalog).filter((s) => s.file && !buffers[s.id]);
+  const first = todo.filter((s) => PRIORITY_SOUNDS.includes(s.id));
+  const rest = todo.filter((s) => !PRIORITY_SOUNDS.includes(s.id));
   let next = 0;
-  const workers = Array.from({ length: Math.min(MAX_PARALLEL_LOADS, todo.length) }, async () => {
-    while (next < todo.length) await loadSound(todo[next++]);
+  const workers = () => Array.from({ length: Math.min(MAX_PARALLEL_LOADS, rest.length) }, async () => {
+    while (next < rest.length) await loadSound(rest[next++]);
   });
-  return Promise.all(workers).then(() => {
+  return Promise.all(first.map(loadSound)).then(() => Promise.all(workers())).then(() => {
     console.info(`audio: загружено ${Object.keys(buffers).length} из ${Object.keys(catalog).length}`
       + (failed.length ? `, НЕ загрузились: ${failed.join(', ')}` : ''));
   });

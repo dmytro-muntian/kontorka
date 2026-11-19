@@ -133,10 +133,10 @@
     "morning": {
       "silenceSec": 2.5,
       "reportAfterSec": 2,
-      "phantomAfterSec": 5,
-      "holdSec": 4.5,
-      "afterCardSec": 1.5,
-      "music": "amb_menu"
+      "phantomAfterSec": 6,
+      "holdSec": 7.5,
+      "afterCardSec": 2.5,
+      "music": null
     }
   }
 }
