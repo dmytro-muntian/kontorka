@@ -302,6 +302,38 @@ function addMessage(ticketId, key) {
   if (stickBottom) els.feed.scrollTop = els.feed.scrollHeight;
 }
 
+// Утро: системное сообщение ИИ-агента с итогом смены. Строки появляются по одной (только оформление, таймеры не игровые).
+function addMorningReport({ n, summary }) {
+  setTab('support');
+  const node = el('div', 'tm-msg tm-sys', els.feed);
+  el('div', 'tm-avatar', node).textContent = 'AI';
+  const body = el('div', 'tm-card__body', node);
+  const head = el('div', 'tm-card__head', body);
+  el('span', 'tm-name', head).textContent = T('morning.report.name');
+  el('span', 'tm-time', head).textContent = T('morning.report.time');
+  const text = el('div', 'tm-text', body);
+  const lines = [
+    [T('morning.report.title'), ''],
+    [T('morning.report.tokens', { spent: Math.max(0, 100 - (summary?.tokens ?? 0)) }), ''],
+    [T('morning.report.sla', { sla: summary?.sla ?? 0 }), ''],
+    [T('morning.report.tickets', { resolved: summary?.resolved ?? 0, missed: summary?.missed ?? 0 }), ''],
+    [T('morning.report.shift', { n }), ''],
+    [T('morning.report.thanks'), 'is-thanks'],
+  ];
+  lines.forEach(([value, cls], i) => {
+    const add = () => {
+      if (!node.isConnected) return;
+      el('div', `tm-sys-line ${cls}`.trim(), text).textContent = value;
+      els.feed.scrollTop = els.feed.scrollHeight;
+    };
+    if (i === 0) add(); else setTimeout(add, 650 * i);
+  });
+  els.empty.hidden = true;
+  trimFeed();
+  markUnread();
+  els.feed.scrollTop = els.feed.scrollHeight;
+}
+
 // Карточки показывают статус и возраст; читаем state раз в REFRESH_SEC.
 function refreshCards() {
   for (const [id, rec] of items) {
@@ -522,6 +554,10 @@ function renderChats() {
   });
   const name = el('span', 'tm-name', header);
   name.textContent = T('calls.caller.unknown');
+  const dial = el('button', 'tm-callbtn tm-chat__dial', header);
+  dial.type = 'button';
+  dial.textContent = T('calls.button.dial');
+  onPress(dial, () => { if (E) E('intent:dial', { contact: 'phoneGuy' }); });
 
   const messages = el('div', 'tm-chat__messages', chat);
   const entries = chatHistory;
@@ -575,7 +611,7 @@ function syncPhone() {
   els.main.classList.toggle('is-story', p.status === 'playing');
   if (!busy) return;
   els.barName.textContent = T(p.name);
-  const timed = p.status === 'playing';
+  const timed = p.status === 'playing' || p.status === 'connected';
   els.barStatus.textContent = T(`calls.status.${p.status === 'playing' ? 'talk' : p.status}`) + (timed ? ` · ${mmss(p.t)}` : '');
   const incoming = p.status === 'incoming';
   els.answerBtn.hidden = !incoming;
@@ -660,6 +696,7 @@ export function mount(rootEl, ctx) {
 
   offs = [
     on('night:start', reset),
+    on('morning:report', addMorningReport),
     on('ticket:new', ({ id }) => {
       const tk = S.tickets.find((x) => x.id === id);
       if (tk) addCard(tk);

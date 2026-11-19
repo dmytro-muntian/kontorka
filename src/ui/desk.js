@@ -324,7 +324,7 @@ function mfxTickMonitor(fx, dtMs, burst, type) {
 
   // горизонтальные разрывы кадра
   m.bands = m.bands.filter((b) => (b.ttl -= dtMs) > 0);
-  const target = 5 + (burst ? 6 : 0) + (m.roll ? 3 : 0);
+  const target = 8 + (burst ? 8 : 0) + (m.roll ? 3 : 0);
   for (let k = 0; k < 2 && m.bands.length < target; k++) {
     if (Math.random() < 0.55) m.bands.push(mfxBand(W, H, burst));
   }
@@ -352,7 +352,7 @@ function mfxTickMonitor(fx, dtMs, burst, type) {
 
   // яркие и тёмные блоки «битой» картинки
   m.slabs = m.slabs.filter((s) => (s.ttl -= dtMs) > 0);
-  if (m.slabs.length < 6 && Math.random() < (burst ? 0.8 : 0.25)) m.slabs.push(mfxSlab(W, H, burst));
+  if (m.slabs.length < 8 && Math.random() < (burst ? 0.9 : 0.45)) m.slabs.push(mfxSlab(W, H, burst));
   for (const s of m.slabs) {
     cx.fillStyle = s.color;
     cx.fillRect(Math.round(s.x), Math.round(s.y), Math.round(s.w), Math.max(1, Math.round(s.h)));
@@ -369,7 +369,7 @@ function mfxTickMonitor(fx, dtMs, burst, type) {
   m.noiseCx.putImageData(m.noiseImg, 0, 0);
   cx.imageSmoothingEnabled = false;
   cx.globalCompositeOperation = 'lighter';
-  cx.globalAlpha = burst ? 0.3 : 0.14;
+  cx.globalAlpha = burst ? 0.5 : 0.24;
   cx.drawImage(m.noise, 0, 0, W, H);
   cx.imageSmoothingEnabled = true;
 
@@ -381,7 +381,7 @@ function mfxTickMonitor(fx, dtMs, burst, type) {
   cx.globalCompositeOperation = 'source-over';
 
   // провал яркости, строки развёртки, виньетка, мягкий край стекла
-  m.flick = type === 'drop' && burst ? 0.88 : (Math.random() < 0.025 ? rand(0.12, 0.3) : 0);
+  m.flick = type === 'drop' && burst ? 0.88 : (Math.random() < 0.05 ? rand(0.12, 0.35) : 0);
   if (m.flick) { cx.fillStyle = `rgba(0,0,0,${m.flick})`; cx.fillRect(0, 0, W, H); }
   cx.drawImage(m.lines, 0, 0);
   cx.globalCompositeOperation = 'destination-in';
@@ -396,16 +396,55 @@ function mfxDrawStatic(fx, burst) {
   const s = fx.stat;
   if (!s) return;
   const { w, h, u32 } = s;
-  const base = fx.reduced ? 0.035 : 0.05 + (burst ? 0.04 : 0);   // спокойное зерно, всплеск едва заметен
+  const calm = fx.reduced;
+  const base = calm ? 0.035 : 0.12 + (burst ? 0.2 : 0);   // заметное зерно, на всплесках почти сплошная метель
+  const tear = new Set();                                  // рваные строки: ярче и плотнее остальных
+  if (!calm) {
+    const n = burst ? 7 + ((Math.random() * 7) | 0) : 1 + ((Math.random() * 3) | 0);
+    for (let k = 0; k < n; k++) {
+      const y0 = (Math.random() * h) | 0;
+      const th = 1 + ((Math.random() * (burst ? 4 : 2)) | 0);
+      for (let d = 0; d < th; d++) tear.add(Math.min(h - 1, y0 + d));
+    }
+  }
   let i = 0;
   for (let y = 0; y < h; y++) {
-    const bd = (y / h - fx.bandPos) / 0.09;
-    let k = fx.bandActive ? 1 + 1.0 * Math.exp(-bd * bd) : 1;   // мягкая бегущая полоса
-    if (Math.random() < 0.004) k *= 1.8;                        // редкие светлые строки
+    const bd = (y / h - fx.bandPos) / 0.12;
+    let k = fx.bandActive ? 1 + 1.6 * Math.exp(-bd * bd) : 1;   // бегущая светлая полоса, заметнее прежней
+    if (!calm && Math.random() < 0.012) k *= 2.2;                // светлые строки чаще
+    const torn = tear.has(y);
+    if (torn) k *= 2.6;
     const a = Math.min(255, (base * k * 255) | 0);
+    const lo = torn ? 150 : 70;
+    const span = torn ? 105 : 170;
     for (let x = 0; x < w; x++) {
-      const v = 90 + ((Math.random() * 120) | 0);
+      const v = lo + ((Math.random() * span) | 0);
       u32[i++] = (a << 24) | (v << 16) | (v << 8) | v;
+    }
+  }
+  if (!calm) {
+    // цветные обрывки сигнала: красные и голубые блоки по одной-две строки, смещённые каналы
+    const blocks = burst ? 14 : 3;
+    for (let b = 0; b < blocks; b++) {
+      if (!burst && Math.random() < 0.5) continue;
+      const y = (Math.random() * h) | 0;
+      const bw = 8 + ((Math.random() * (burst ? 70 : 34)) | 0);
+      const x0 = (Math.random() * (w - bw)) | 0;
+      const rows = 1 + ((Math.random() * 2) | 0);
+      const color = Math.random() < 0.6 ? 0xdd2828ff : 0xdddcff3c;
+      for (let r = 0; r < rows && y + r < h; r++) {
+        const row = (y + r) * w + x0;
+        for (let x = 0; x < bw; x++) u32[row + x] = color;
+      }
+    }
+    // длинные белые «рваные» штрихи
+    const streaks = burst ? 6 : 1;
+    for (let b = 0; b < streaks; b++) {
+      if (!burst && Math.random() < 0.6) continue;
+      const y = (Math.random() * h) | 0;
+      const len = 20 + ((Math.random() * w * 0.6) | 0);
+      const x0 = (Math.random() * (w - len)) | 0;
+      for (let x = 0; x < len; x++) u32[y * w + x0 + x] = 0xf0fff4e6;
     }
   }
   s.cx.putImageData(s.img, 0, 0);
@@ -452,34 +491,39 @@ function mfxFrame(ts) {
 
   if (ts >= fx.nextEvent) {
     const r = Math.random();
-    fx.eventType = r < 0.35 ? 'roll' : r < 0.5 ? 'drop' : 'burst';
-    fx.eventUntil = ts + rand(350, 700);
-    fx.nextEvent = ts + rand(12000, 24000);
-    fx.jolt = 1 + Math.floor(Math.random() * 2);
+    fx.eventType = r < 0.3 ? 'roll' : r < 0.42 ? 'drop' : 'burst';
+    fx.eventUntil = ts + rand(450, 1000);
+    fx.nextEvent = ts + rand(3500, 8000);      // раньше 12–24 с: помехи теперь не заставляют ждать
+    fx.jolt = 2 + Math.floor(Math.random() * 3);
     if (fx.eventType === 'roll' && fx.mon) fx.mon.roll = { p: 0, dur: 700 };
+  } else if (ts >= fx.microAt) {
+    fx.microUntil = ts + rand(90, 220);        // короткий срыв картинки между большими событиями
+    fx.microAt = ts + rand(900, 2600);
+    fx.jolt = Math.max(fx.jolt, 1);
   }
-  const burst = ts < fx.eventUntil;
+  const burst = ts < fx.eventUntil || ts < fx.microUntil;
 
-  if (!fx.bandActive && ts >= fx.nextBand) { fx.bandActive = true; fx.bandPos = -0.15; fx.bandSpeed = rand(0.1, 0.18); }
+  if (!fx.bandActive && ts >= fx.nextBand) { fx.bandActive = true; fx.bandPos = -0.15; fx.bandSpeed = rand(0.14, 0.3); }
   if (fx.bandActive) {
     fx.bandPos += fx.bandSpeed * tickMs / 1000;
-    if (fx.bandPos > 1.2) { fx.bandActive = false; fx.nextBand = ts + rand(9000, 16000); }
+    if (fx.bandPos > 1.2) { fx.bandActive = false; fx.nextBand = ts + rand(3500, 8000); }
   }
 
   mfxTickMonitor(fx, tickMs, burst, fx.eventType);
-  fx.statAcc += tickMs;   // зерно ~8 к/с: «дышит», а не дрожит
-  if (fx.statAcc >= 120) { fx.statAcc = 0; mfxDrawStatic(fx, burst); }
+  fx.statAcc += tickMs;   // зерно ~20 к/с: резкое, живое (раньше ~8 к/с)
+  if (fx.statAcc >= 45) { fx.statAcc = 0; mfxDrawStatic(fx, burst); }
 
-  // лёгкая дрожь картинки на всплесках
+  // дрожь картинки: сильнее, чем раньше, особенно на больших всплесках
   if (fx.jolt > 0) {
-    els.menuShake.style.transform = `translate(${rand(-1.5, 1.5).toFixed(1)}px, ${rand(-1, 1).toFixed(1)}px)`;
+    const amp = ts < fx.eventUntil ? 4 : 2;
+    els.menuShake.style.transform = `translate(${rand(-amp, amp).toFixed(1)}px, ${rand(-amp * 0.6, amp * 0.6).toFixed(1)}px)`;
     fx.jolt--;
   } else if (els.menuShake.style.transform) {
     els.menuShake.style.transform = '';
   }
 
   // мерцание яркости всего кадра
-  const fl = burst && fx.eventType === 'drop' ? 0.2 : (Math.random() < 0.015 ? rand(0.03, 0.07) : 0);
+  const fl = burst && fx.eventType === 'drop' && ts < fx.eventUntil ? 0.28 : (Math.random() < 0.04 ? rand(0.05, 0.14) : 0);
   if (fl !== fx.flickLevel) { fx.flickLevel = fl; els.menuFlicker.style.opacity = String(fl); }
 }
 
@@ -488,8 +532,9 @@ function mfxStart() {
   const now = performance.now();
   const fx = {
     reduced: REDUCE, raf: 0, last: now, t: 0, smokeAcc: 0, tickAcc: 0,
-    nextEvent: now + 6000, eventUntil: 0, eventType: 'burst', jolt: 0, statAcc: 0,
-    nextBand: now + 7000, bandActive: false, bandPos: -1, bandSpeed: 0.3,
+    nextEvent: now + 2500, eventUntil: 0, eventType: 'burst', jolt: 0, statAcc: 0,
+    microAt: now + 1200, microUntil: 0,
+    nextBand: now + 2500, bandActive: false, bandPos: -1, bandSpeed: 0.3,
     flickLevel: 0, staticDone: false,
   };
   els.menuFx = fx;
@@ -516,6 +561,152 @@ function mfxStart() {
 function mfxStop() {
   if (els.menuFx) cancelAnimationFrame(els.menuFx.raf);
   els.menuFx = null;
+}
+
+// ---------- меню паузы: глитчи и помехи ----------
+// Пока игра на паузе, tick не идёт, поэтому у эффекта свой rAF (как у mfxFrame). Стиль ИИ: красный, цифровой, агрессивный.
+// Холст маленький и растянут на весь экран; текст глитчей рисует HTML-слой (els.pauseCode), а не холст.
+const PAUSE_FX_W = 220;
+const PAUSE_FX_TICK_MS = 45;     // ~22 к/с
+
+function pauseFxStart() {
+  const now = performance.now();
+  els.pauseFx = {
+    raf: 0, last: now, acc: 0, cw: 0, ch: 0, w: 0, h: 0, cx: null, img: null, u32: null, done: false,
+    nextEvent: now + 1500, until: 0, type: 'burst', microAt: now + 600, microUntil: 0,
+    nextBand: now + 1200, bandActive: false, bandPos: -1, bandSpeed: 0.3, codeUntil: 0,
+  };
+  els.pauseFx.raf = requestAnimationFrame(pauseFxFrame);
+}
+
+function pauseFxStop() {
+  if (els.pauseFx) cancelAnimationFrame(els.pauseFx.raf);
+  els.pauseFx = null;
+}
+
+function pauseFxResize(fx) {
+  const W = els.pauseScreen.clientWidth, H = els.pauseScreen.clientHeight;
+  if (!W || !H) return false;
+  if (W === fx.cw && H === fx.ch) return true;
+  fx.cw = W; fx.ch = H;
+  const w = PAUSE_FX_W, h = Math.max(1, Math.round(w * H / W));
+  const cv = els.pauseStatic;
+  cv.width = w; cv.height = h;
+  fx.cx = cv.getContext('2d');
+  fx.img = fx.cx.createImageData(w, h);
+  fx.u32 = new Uint32Array(fx.img.data.buffer);
+  fx.w = w; fx.h = h; fx.done = false;
+  return true;
+}
+
+function pauseFxDraw(fx, burst, ts) {
+  const { w, h, u32 } = fx;
+  const calm = REDUCE;
+  const drop = burst && fx.type === 'drop' && ts < fx.until;
+  const base = calm ? 0.05 : 0.08 + (burst ? 0.2 : 0);
+  // красноватое зерно: канал R всегда сильнее G и B
+  const tear = new Set();
+  if (!calm) {
+    const n = burst ? 6 + ((Math.random() * 6) | 0) : (Math.random() < 0.5 ? 1 : 0);
+    for (let k = 0; k < n; k++) {
+      const y0 = (Math.random() * h) | 0;
+      const th = 1 + ((Math.random() * (burst ? 3 : 1)) | 0);
+      for (let d = 0; d < th; d++) tear.add(Math.min(h - 1, y0 + d));
+    }
+  }
+  let i = 0;
+  for (let y = 0; y < h; y++) {
+    const bd = (y / h - fx.bandPos) / 0.1;
+    let k = fx.bandActive ? 1 + 2.2 * Math.exp(-bd * bd) : 1;
+    const torn = tear.has(y);
+    if (torn) k *= 2.8;
+    const a = Math.min(255, (base * k * 255) | 0);
+    for (let x = 0; x < w; x++) {
+      const v = (torn ? 130 : 60) + ((Math.random() * (torn ? 125 : 170)) | 0);
+      const g = (v * (torn ? 0.5 : 0.38)) | 0;
+      u32[i++] = (a << 24) | (g << 16) | (g << 8) | v;   // ABGR: красный = младший байт
+    }
+  }
+  if (!calm) {
+    // «битые» блоки: красные и чёрные обрывки кадра
+    const blocks = burst ? 12 : 2;
+    for (let b = 0; b < blocks; b++) {
+      if (!burst && Math.random() < 0.6) continue;
+      const y = (Math.random() * h) | 0;
+      const bw = 10 + ((Math.random() * (burst ? 90 : 40)) | 0);
+      const x0 = (Math.random() * (w - bw)) | 0;
+      const rows = 1 + ((Math.random() * (burst ? 4 : 2)) | 0);
+      const color = Math.random() < 0.55 ? 0xd01818ff : 0xe6000000;
+      for (let r = 0; r < rows && y + r < h; r++) {
+        const row = (y + r) * w + x0;
+        for (let x = 0; x < bw; x++) u32[row + x] = color;
+      }
+    }
+  }
+  if (drop) {
+    // провал кадра: всё на миг темнеет
+    for (let p = 0; p < u32.length; p++) if (((u32[p] >>> 24) & 255) < 190) u32[p] = 0xb4000000 | (u32[p] & 0xff);
+  }
+  fx.cx.putImageData(fx.img, 0, 0);
+}
+
+function pauseFxFrame(ts) {
+  const fx = els.pauseFx;
+  if (!fx) return;
+  fx.raf = requestAnimationFrame(pauseFxFrame);
+  const dt = Math.min(100, ts - fx.last);
+  fx.last = ts;
+  const screen = els.pauseScreen;
+  if (!screen || screen.hidden || !pauseFxResize(fx)) return;
+
+  if (REDUCE) {   // «уменьшить движение»: один спокойный кадр, без дрожи
+    if (!fx.done) { pauseFxDraw(fx, false, ts); fx.done = true; }
+    return;
+  }
+
+  if (ts >= fx.nextEvent) {
+    const r = Math.random();
+    fx.type = r < 0.2 ? 'drop' : 'burst';
+    fx.until = ts + rand(350, 850);
+    fx.nextEvent = ts + rand(2200, 5200);
+    fx.codeUntil = ts + rand(300, 700);
+    fx.codeShown = false;
+  } else if (ts >= fx.microAt) {
+    fx.microUntil = ts + rand(80, 200);
+    fx.microAt = ts + rand(600, 1800);
+  }
+  const burst = ts < fx.until || ts < fx.microUntil;
+
+  fx.acc += dt;
+  if (fx.acc < PAUSE_FX_TICK_MS) return;
+  const tickMs = fx.acc;
+  fx.acc = 0;
+
+  if (!fx.bandActive && ts >= fx.nextBand) { fx.bandActive = true; fx.bandPos = -0.15; fx.bandSpeed = rand(0.25, 0.5); }
+  if (fx.bandActive) {
+    fx.bandPos += fx.bandSpeed * tickMs / 1000;
+    if (fx.bandPos > 1.2) { fx.bandActive = false; fx.nextBand = ts + rand(1800, 4500); }
+  }
+  pauseFxDraw(fx, burst, ts);
+
+  // панель дрожит и «срывается» на всплесках; заголовок расслаивается
+  const big = ts < fx.until;
+  if (burst) {
+    const amp = big ? 7 : 3;
+    els.pausePanel.style.transform = `translate(${rand(-amp, amp).toFixed(1)}px, ${rand(-amp * 0.3, amp * 0.3).toFixed(1)}px) skewX(${(rand(-1, 1) * (big ? 3 : 1)).toFixed(1)}deg)`;
+  } else if (els.pausePanel.style.transform) {
+    els.pausePanel.style.transform = '';
+  }
+  els.pauseTitle.classList.toggle('is-glitch', burst);
+
+  // обрывок служебного кода в случайном месте экрана
+  const codeOn = ts < fx.codeUntil;
+  if (codeOn && !fx.codeShown) {
+    fx.codeShown = true;
+    els.pauseCode.style.left = `${rand(4, 70).toFixed(0)}%`;
+    els.pauseCode.style.top = `${rand(6, 90).toFixed(0)}%`;
+  }
+  els.pauseCode.style.opacity = codeOn ? String(rand(0.45, 1).toFixed(2)) : '0';
 }
 
 function layoutMenuArt() {
@@ -632,7 +823,8 @@ function el(tag, className, parent) {
 }
 
 function renderClock(state) {
-  const displayTime = els.clockBack > 0 ? Math.max(0, state.time - 60) : state.time;
+  const base = els.morningWait ? 359 : state.time;   // утро: пока тишина, часы стоят на 5 AM
+  const displayTime = els.clockBack > 0 ? Math.max(0, base - 60) : base;
   const face = clockFace(displayTime, els.clockGlitch > 0);
   const key = face.chars.join('') + (face.colon ? ':' : '');
   if (key === shownText) return;
@@ -658,6 +850,7 @@ function updateTension(state) {
 // Слои атмосферы. Всё в процентах сцены, поверх фото ничего не запекается.
 function buildFxBelow(stage) {
   el('div', 'fx fx-grade', stage);
+  el('div', 'fx fx-dawn', stage);                         // утро: холодный серо-голубой рассвет (класс is-dawn на сцене)
   const win = el('div', 'fx fx-window', stage);          // свет с улицы сквозь жалюзи
   els.fxWindow = win;
   el('div', 'fx-window__pass', win);                      // тень «проходит» за окном
@@ -1015,7 +1208,7 @@ function updateScare(dt, ctx) {
   sc.t += dt;
   if (sc.t >= SCARE_END) {
     resetScare();
-    showShiftFailed(ctx);
+    showShiftFailed(ctx, sc.enemyId);
     return;
   }
   sc.root.dataset.phase = sc.t < SCARE_FLASH ? 'flash' : sc.t < SCARE_CUT_AT ? 'show' : 'black';
@@ -1039,7 +1232,10 @@ function stopMenuMusic() {
 
 function startPauseMusic() {
   if (!menuAudioUnlocked || pauseMusic) return;
-  pauseMusic = audio.play('amb_menu', { loop: true, volume: 0.65, allowPaused: true }) || null;
+  // отдельный трек паузы; если звука нет ни в каталоге, ни среди заглушек, играет музыка меню
+  pauseMusic = audio.play('amb_pause', { loop: true, volume: 0.7, allowPaused: true })
+    || audio.play('amb_menu', { loop: true, volume: 0.65, allowPaused: true })
+    || null;
 }
 
 function stopPauseMusic() {
@@ -1056,7 +1252,32 @@ function updatePauseButton() {
   if (els.pauseButton) els.pauseButton.hidden = !els.gameActive || els.paused;
 }
 
-function showShiftFailed(ctx) {
+// Экран «Смена провалена». После скримера врага с записанной цитатой цитата звучит на этом экране,
+// кнопка возврата в меню открывается, когда она договорила (или через запасное время, если звука нет).
+const FAILED_QUOTES = { mr404: 'mr404_quote' };
+const FAILED_BUTTON_NO_QUOTE_MS = 3500;
+const FAILED_BUTTON_AFTER_QUOTE_MS = 1200;
+const FAILED_BUTTON_MAX_MS = 25000;
+let failedTimer = 0;
+let failedQuote = null;
+
+function unlockFailedButton() {
+  clearTimeout(failedTimer);
+  failedTimer = 0;
+  els.failedScreen.classList.add('is-ready');
+  els.failedButton.disabled = false;
+  els.failedButton.focus?.({ preventScroll: true });
+}
+
+function hideShiftFailed() {
+  clearTimeout(failedTimer);
+  failedTimer = 0;
+  if (failedQuote) { audio.stop?.(failedQuote); failedQuote = null; }
+  els.failedScreen.hidden = true;
+  els.failedScreen.classList.remove('is-ready');
+}
+
+function showShiftFailed(ctx, enemyId) {
   els.gameActive = false;
   els.stage.inert = true;
   document.querySelector('.mg-screen')?.setAttribute('inert', '');
@@ -1064,10 +1285,28 @@ function showShiftFailed(ctx) {
   els.pauseScreen.hidden = true;
   els.failedTitle.textContent = ctx.t('ui.shiftFailed');
   els.failedTitle.dataset.text = ctx.t('ui.shiftFailed');
+  els.failedLine.textContent = ctx.t('ui.failed.line');
   els.failedButton.textContent = ctx.t('ui.failed.menu');
+  els.failedGhost.style.backgroundImage = enemyId ? `url("assets/img/enemies/${enemyId}/scream.webp")` : '';
+  els.failedScreen.classList.remove('is-ready');
+  els.failedButton.disabled = true;
   els.failedScreen.hidden = false;
   updatePauseButton();
-  els.failedButton.focus();
+  clearTimeout(failedTimer);
+  if (failedQuote) audio.stop?.(failedQuote);
+  const quoteId = FAILED_QUOTES[enemyId];
+  const mine = quoteId ? (audio.play?.(quoteId, { volume: 1 }) ?? null) : null;
+  failedQuote = mine;
+  if (mine) {
+    audio.whenFinished(mine).then(() => {
+      if (failedQuote !== mine || els.failedScreen.hidden) return;
+      clearTimeout(failedTimer);
+      failedTimer = setTimeout(unlockFailedButton, FAILED_BUTTON_AFTER_QUOTE_MS);
+    });
+    failedTimer = setTimeout(unlockFailedButton, FAILED_BUTTON_MAX_MS);   // запас, если запись не договорила
+  } else {
+    failedTimer = setTimeout(unlockFailedButton, FAILED_BUTTON_NO_QUOTE_MS);
+  }
 }
 
 function showMainMenu(ctx) {
@@ -1079,7 +1318,7 @@ function showMainMenu(ctx) {
   els.menu.style.zIndex = '';
   els.menu.classList.remove('is-pause-settings');
   els.pauseScreen.hidden = true;
-  els.failedScreen.hidden = true;
+  hideShiftFailed();
   els.paused = false;
   els.menu.hidden = false;
   els.settingsPanel.hidden = true;
@@ -1306,8 +1545,15 @@ export function mount(rootEl, ctx) {
   pauseImage.alt = '';
   pauseImage.draggable = false;
   el('div', 'pause-effects', els.pauseScreen);
+  els.pauseStatic = el('canvas', 'pause-static', els.pauseScreen);
+  els.pauseStatic.setAttribute('aria-hidden', 'true');
+  els.pauseCode = el('div', 'pause-code', els.pauseScreen);
+  els.pauseCode.setAttribute('aria-hidden', 'true');
+  els.pauseCode.textContent = t('shutdown.code');
   const pausePanel = el('div', 'pause-panel', els.pauseScreen);
+  els.pausePanel = pausePanel;
   const pauseTitle = el('h1', 'menu-title pause-title', pausePanel);
+  els.pauseTitle = pauseTitle;
   pauseTitle.textContent = t('menu.pause.title');
   const pauseActions = el('div', 'menu-actions', pausePanel);
   els.pauseResumeBtn = el('button', 'menu-button menu-button--primary', pauseActions);
@@ -1327,15 +1573,25 @@ export function mount(rootEl, ctx) {
   els.failedScreen.hidden = true;
   els.failedScreen.setAttribute('role', 'alertdialog');
   els.failedScreen.setAttribute('aria-modal', 'true');
+  els.failedGhost = el('div', 'shift-failed__ghost', els.failedScreen);
+  const failedBlood = el('div', 'shift-failed__blood', els.failedScreen);
+  const DRIPS = [[6, 10, 34, 0, 6], [17, 6, 52, 0.8, 8], [29, 14, 26, 0.3, 5], [41, 8, 60, 1.4, 9], [52, 12, 40, 0.6, 7],
+    [63, 7, 70, 0.2, 10], [74, 16, 30, 1.1, 6], [86, 9, 48, 0.5, 8], [94, 6, 38, 1.7, 7]];
+  for (const [x, w, len, delay, dur] of DRIPS) {
+    const drip = el('i', '', failedBlood);
+    drip.style.cssText = `--x:${x}%;--w:${w}px;--len:${len}%;--delay:${delay}s;--dur:${dur}s`;
+  }
+  el('div', 'shift-failed__pool', els.failedScreen);
   els.failedTitle = el('h1', 'shift-failed__title', els.failedScreen);
+  els.failedLine = el('p', 'shift-failed__line', els.failedScreen);
   els.failedButton = el('button', 'shift-failed__button', els.failedScreen);
   els.failedButton.type = 'button';
   els.failedButton.addEventListener('pointerup', (event) => {
-    if (event.button > 0) return;
+    if (event.button > 0 || els.failedButton.disabled) return;
     emit('intent:returnMainMenu');
   });
   els.failedButton.addEventListener('click', (event) => {
-    if (event.detail === 0) emit('intent:returnMainMenu');
+    if (event.detail === 0 && !els.failedButton.disabled) emit('intent:returnMainMenu');
   });
 
   els.clockShift = el('div', 'clock-shift', root);
@@ -1349,6 +1605,8 @@ export function mount(rootEl, ctx) {
   el('i', '', shiftTrack);
   el('span', 'clock-shift__time-out', shiftTrack).textContent = '06:00';
   els.clockShiftStatus = el('span', 'clock-shift__status', shiftCard);
+  els.clockShiftSlots = el('div', 'clock-shift__slots', shiftCard);
+  els.clockShiftProgress = el('span', 'clock-shift__progress', shiftCard);
 
   els.paused = false;
   els.settingsReturn = 'main';
@@ -1479,11 +1737,28 @@ export function mount(rootEl, ctx) {
       updateShutdown(dt);
       updateScare(dt, ctx);
     }),
-    on('clock:hour', ({ hour }) => {
-      if (hour !== 6) return;
+    // Утро (main.js ведёт ход, здесь только оформление): часы 5 AM → 6 AM, рассвет, табель смен.
+    on('morning:start', () => {
+      els.morningWait = true;
+      shownText = '';
+      els.stage.classList.remove('is-dawn');
+      els.stage.classList.add('is-morning');
+      renderClock(state);
+    }),
+    on('morning:flip', () => {
+      els.morningWait = false;
+      els.clockBack = 0.22;       // часы на миг дёргаются назад и только потом встают на 6 AM
+      shownText = '';
+      renderClock(state);
+      els.stage.classList.add('is-dawn');
+    }),
+    on('morning:card', ({ n }) => {
       els.clockShiftLabel.textContent = ctx.t('ui.hourShift.label');
       els.clockShiftTime.textContent = ctx.t('ui.hourShift.final');
       els.clockShiftStatus.textContent = ctx.t('ui.hourShift.status');
+      els.clockShiftSlots.textContent = '';
+      for (let k = 1; k <= 5; k += 1) el('i', k <= n ? 'is-done' : '', els.clockShiftSlots);
+      els.clockShiftProgress.textContent = ctx.t('morning.card.progress', { n });
       els.clockShift.hidden = false;
       els.clockShift.classList.add('is-final');
     }),
@@ -1517,9 +1792,11 @@ export function mount(rootEl, ctx) {
       shownText = '';
       els.clockGlitch = 0;
       els.clockBack = 0;
+      els.morningWait = false;
+      els.stage.classList.remove('is-morning', 'is-dawn');
       els.silhouetteTime = 0;
       els.glitchSilhouette.hidden = true;
-      els.failedScreen.hidden = true;
+      hideShiftFailed();
       els.clockShift.hidden = true;
       els.clockShift.classList.remove('is-final');
       tokensDashTtl = 0;
@@ -1554,6 +1831,7 @@ export function mount(rootEl, ctx) {
       syncMenu(state, t);
     }),
   ];
+  pauseFxStart();
   if (menuAudioUnlocked) startMenuMusic();
 }
 
@@ -1563,6 +1841,7 @@ export function unmount() {
   if (els.handleEscape) window.removeEventListener('keydown', els.handleEscape);
   window.removeEventListener('resize', layoutMenuArt);
   mfxStop();
+  pauseFxStop();
   els.menuResizeObserver?.disconnect();
   els.resizeObserver?.disconnect();
   offs.forEach((off) => off());

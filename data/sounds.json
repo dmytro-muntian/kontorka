@@ -251,5 +251,47 @@
     "kind": "ambient",
     "loop": true,
     "volume": 0.6
+  },
+  {
+    "id": "mr404_quote",
+    "file": "assets/audio/mr404_quote.mp3",
+    "kind": "ui",
+    "loop": false,
+    "volume": 1.0
+  },
+  {
+    "id": "ui_click_menu",
+    "file": "assets/audio/ui_click_menu.mp3",
+    "kind": "ui",
+    "loop": false,
+    "volume": 0.6
+  },
+  {
+    "id": "ui_click_tablet",
+    "file": "assets/audio/ui_click_tablet.mp3",
+    "kind": "ui",
+    "loop": false,
+    "volume": 0.6
+  },
+  {
+    "id": "ui_click_mg",
+    "file": "assets/audio/ui_click_mg.mp3",
+    "kind": "ui",
+    "loop": false,
+    "volume": 0.6
+  },
+  {
+    "id": "amb_pause",
+    "file": "assets/audio/amb_pause.mp3",
+    "kind": "ambient",
+    "loop": true,
+    "volume": 0.5
+  },
+  {
+    "id": "call_ringback",
+    "file": "assets/audio/call_ringback.mp3",
+    "kind": "ui",
+    "loop": true,
+    "volume": 0.5
   }
 ]

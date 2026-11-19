@@ -152,7 +152,8 @@ export function play(soundId, opts = {}) {
     return null;
   }
   if (manuallyPaused) {
-    if (!opts.allowPaused || !def.file) return null;
+    // На паузе Web Audio остановлен: играем через <audio>. Заглушки превращаются в маленький WAV.
+    if (!opts.allowPaused || (!def.file && !SYNTH[soundId])) return null;
     return playPausedHtml(soundId, def, opts);
   }
   if (!ctx) return null;
@@ -187,7 +188,7 @@ export function whenFinished(handle) {
 }
 
 function playPausedHtml(soundId, def, opts) {
-  const src = new Audio(new URL(def.file, document.baseURI).href);
+  const src = new Audio(def.file ? new URL(def.file, document.baseURI).href : synthWavUrl(soundId));
   src.loop = opts.loop ?? def.loop ?? false;
   src.volume = Math.min(1, masterVolume * (opts.volume ?? 1) * (def.volume ?? 1));
   src.preload = 'auto';
@@ -320,6 +321,12 @@ const SYNTH = {
   whistle_mr404: { volume: 0.5, make: makeWhistle },
   laugh_mr404: { volume: 0.8, make: makeLaugh },
   warning_attack: { volume: 0.9, make: makeWarning },
+  // звуки кнопок: три разных, по одному на группу интерфейса (меню и пауза, планшет, мини-игра)
+  ui_click_menu: { volume: 0.6, make: makeClickMenu },
+  ui_click_tablet: { volume: 0.6, make: makeClickTablet },
+  ui_click_mg: { volume: 0.6, make: makeClickMg },
+  // музыка паузы (петля): заглушка до своего amb_pause.mp3
+  amb_pause: { volume: 0.5, loop: true, make: makePauseAmbient },
 };
 
 function ensureSynth(id) {
@@ -327,7 +334,27 @@ function ensureSynth(id) {
   const buf = createSynthBuffer(id);
   if (!buf) return;
   buffers[id] = buf;
-  catalog[id] = { id, file: null, kind: 'world', loop: false, volume: SYNTH[id].volume };
+  catalog[id] = { id, file: null, kind: 'world', loop: !!SYNTH[id].loop, volume: SYNTH[id].volume };
+}
+
+// Заглушка -> WAV (16 бит, моно) для <audio>: нужна, пока игра на паузе и Web Audio остановлен.
+const wavUrls = {};
+function synthWavUrl(id) {
+  if (wavUrls[id]) return wavUrls[id];
+  const sr = 22050;
+  const data = SYNTH[id].make(sr);
+  let peak = 0;
+  for (let i = 0; i < data.length; i++) peak = Math.max(peak, Math.abs(data[i]));
+  const k = 0.8 / (peak || 1);
+  const view = new DataView(new ArrayBuffer(44 + data.length * 2));
+  const str = (off, s) => { for (let i = 0; i < s.length; i++) view.setUint8(off + i, s.charCodeAt(i)); };
+  str(0, 'RIFF'); view.setUint32(4, 36 + data.length * 2, true); str(8, 'WAVE');
+  str(12, 'fmt '); view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true);
+  view.setUint32(24, sr, true); view.setUint32(28, sr * 2, true); view.setUint16(32, 2, true); view.setUint16(34, 16, true);
+  str(36, 'data'); view.setUint32(40, data.length * 2, true);
+  for (let i = 0; i < data.length; i++) view.setInt16(44 + i * 2, Math.max(-1, Math.min(1, data[i] * k)) * 32767, true);
+  wavUrls[id] = URL.createObjectURL(new Blob([view], { type: 'audio/wav' }));
+  return wavUrls[id];
 }
 
 function createSynthBuffer(id) {
@@ -460,6 +487,80 @@ function makePowerOut(sr) {
     phase += 2 * Math.PI * (48 + 4 * Math.sin(2 * Math.PI * 0.3 * t)) / sr;
     const crackle = Math.random() < 0.0007 ? (Math.random() * 2 - 1) * 0.7 : 0;
     out[i] = (0.65 * Math.sin(phase) + 0.25 * Math.sin(phase * 1.5) + crackle) * flicker * fade;
+  }
+  return out;
+}
+
+// Кнопки меню и паузы: сухой «терминальный» тик с коротким писком вниз и низким стуком.
+function makeClickMenu(sr) {
+  const n = Math.floor(sr * 0.12);
+  const out = new Float32Array(n);
+  let ph = 0;
+  for (let i = 0; i < n; i++) {
+    const t = i / sr;
+    ph += 2 * Math.PI * (1700 - 7000 * t) / sr;
+    const beep = (Math.sin(ph) > 0 ? 1 : -1) * Math.exp(-t * 60) * 0.45;
+    const tick = (Math.random() * 2 - 1) * Math.exp(-t * 420) * 0.7;
+    const thud = Math.sin(2 * Math.PI * 90 * t) * Math.exp(-t * 38) * 0.5;
+    out[i] = beep + tick + thud;
+  }
+  return out;
+}
+
+// Кнопки планшета: мягкое касание по стеклу: короткий звонкий тон и приглушённый удар пальца, потом лёгкий «отрыв».
+function makeClickTablet(sr) {
+  const n = Math.floor(sr * 0.16);
+  const out = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const t = i / sr;
+    const tone = Math.sin(2 * Math.PI * (1900 - 2600 * t) * t) * Math.exp(-t * 70) * 0.5;
+    const thump = Math.sin(2 * Math.PI * 170 * t) * Math.exp(-t * 55) * 0.55;
+    const t2 = t - 0.07;
+    const lift = t2 > 0 ? (Math.random() * 2 - 1) * Math.exp(-t2 * 500) * 0.18 : 0;
+    out[i] = tone + thump + lift;
+  }
+  return out;
+}
+
+// Кнопки мини-игры: нажатие и отпускание «механической клавиши» офисной клавиатуры.
+function makeClickMg(sr) {
+  const n = Math.floor(sr * 0.15);
+  const out = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const t = i / sr;
+    const down = ((Math.random() * 2 - 1) * Math.exp(-t * 520) * 0.7) + Math.sin(2 * Math.PI * 640 * t) * Math.exp(-t * 170) * 0.5;
+    const t2 = t - 0.065;
+    const up = t2 > 0 ? ((Math.random() * 2 - 1) * Math.exp(-t2 * 650) * 0.4) + Math.sin(2 * Math.PI * 880 * t2) * Math.exp(-t2 * 220) * 0.25 : 0;
+    out[i] = down + up;
+  }
+  return out;
+}
+
+// Музыка паузы (заглушка, петля 12 с): тёмный гул с медленной биениями, тонкий призрачный тон и редкие щелчки статики.
+// Частоты подобраны так, чтобы на 12 с приходилось целое число периодов: петля без щелчка на стыке.
+function makePauseAmbient(sr) {
+  const dur = 12;
+  const n = Math.floor(sr * dur);
+  const out = new Float32Array(n);
+  const TAU = 2 * Math.PI;
+  const tones = [[55, 0.5, 0], [55.25, 0.4, 1.3], [82.5, 0.3, 0.6], [110, 0.22, 2.1], [165, 0.12, 0.2], [329.5, 0.05, 1.7]];
+  for (let i = 0; i < n; i++) {
+    const t = i / sr;
+    const swell = 0.7 + 0.3 * Math.sin(TAU * t / 6 - 1.2);      // дыхание: 2 цикла за 12 с
+    let v = 0;
+    for (const [f, a, p] of tones) v += a * Math.sin(TAU * f * t + p);
+    v *= swell;
+    v += 0.03 * Math.sin(TAU * 1760 * t) * (0.5 + 0.5 * Math.sin(TAU * 0.25 * t));   // призрачный тон
+    out[i] = v;
+  }
+  // редкие щелчки: детерминированно, чтобы петля всегда звучала одинаково
+  let seed = 1234567;
+  const rnd = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
+  for (let k = 0; k < 28; k++) {
+    const start = Math.floor(rnd() * (n - sr * 0.02));
+    const amp = 0.12 + rnd() * 0.2;
+    const len = Math.floor(sr * (0.002 + rnd() * 0.006));
+    for (let j = 0; j < len; j++) out[start + j] += (rnd() * 2 - 1) * amp * (1 - j / len);
   }
   return out;
 }

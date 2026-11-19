@@ -86,7 +86,19 @@
         "doorKnockSec": [
           1.8,
           2.6
-        ]
+        ],
+        "dark": {
+          "travelSec": [
+            8,
+            12
+          ],
+          "minStepSec": 0.8,
+          "maxStepSec": 4,
+          "warningToJumpscareSec": [
+            5,
+            8
+          ]
+        }
       }
     },
     "glitches": {
@@ -115,6 +127,12 @@
     "storyCalls": [
       "call_n1"
     ],
-    "minigame": "mg_n1"
+    "minigame": "mg_n1",
+    "morning": {
+      "silenceSec": 2.5,
+      "reportAfterSec": 2,
+      "phantomAfterSec": 5,
+      "holdSec": 4.5
+    }
   }
 }

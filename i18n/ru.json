@@ -482,5 +482,20 @@
   "recruit.footer.id": "ID вакансии: KTK-NS-0841",
   "recruit.confirm.title": "Отклик отправлен",
   "recruit.confirm.text": "Ваша кандидатура успешно отправлена. Спасибо за интерес к компании КОНТОРКА!",
-  "recruit.confirm.next": "Продолжить"
+  "recruit.confirm.next": "Продолжить",
+  "ui.failed.line": "Сотрудник заменён. Доступ к учётной записи закрыт.",
+  "morning.report.name": "ИИ-агент",
+  "morning.report.time": "06:00",
+  "morning.report.title": "Рабочий день окончен. Сессия агента завершена.",
+  "morning.report.tokens": "Токенов израсходовано: {spent}%",
+  "morning.report.sla": "Рейтинг поддержки: {sla}",
+  "morning.report.tickets": "Тикетов закрыто: {resolved}, пропущено: {missed}",
+  "morning.report.shift": "Смена {n} из 5 принята.",
+  "morning.report.thanks": "Спасибо за работу. Увидимся вечером.",
+  "morning.card.progress": "Принято смен: {n} / 5",
+  "calls.contact.phoneGuy": "Ночной коллега",
+  "calls.status.dialing": "Вызов…",
+  "calls.status.noanswer": "Нет ответа",
+  "calls.status.connected": "На линии",
+  "calls.button.dial": "Позвонить"
 }

@@ -7,6 +7,10 @@
 //
 // События: call:incoming {id}; call:start {id, kind}; call:end {id, kind, outcome}
 // (outcome: 'finished' | 'hungup' | 'declined' | 'missed'); subtitle {key | null}.
+//
+// Вызов «Ночного коллеги» (kind 'dial', intent:dial из чата Teams): dialing (гудки call_ringback, ringSec) -> noanswer
+// (показ «Нет ответа», noAnswerSec) -> конец. В ночь answerNight через answerAfterSec берут трубку (connected, call_pickup,
+// молчат, flags.fifthAnswered) до intent:hangUpCall. Токены и нагрузку не тратит; при 0% токенов обрывается.
 
 import { state, set, emit, on } from './state.js';
 import * as audio from './audio.js';
@@ -16,11 +20,15 @@ let started = new Set();
 let ringSnd = null;  // рингтон Teams
 let rec = null;      // handle записи
 let scale = 1;       // подгонка субтитров под длину mp3
+// Контакты для вызова (data/calls.json, ключ contacts; значения по умолчанию на случай, если ключа нет).
+let contacts = { phoneGuy: { name: 'calls.contact.phoneGuy', ringSec: 20, noAnswerSec: 2.5, answerNight: 5, answerAfterSec: 9 } };
 
 // data/calls.json: записи по id (call_n1…).
 export function load(data) {
-  calls = data ?? {};
-  audio.loadCalls(calls);
+  const { contacts: extra, ...rest } = data ?? {};
+  calls = rest;
+  if (extra) contacts = { ...contacts, ...extra };
+  audio.loadCalls(rest);
 }
 
 const phone = () => ({ ...state.phone });
@@ -45,7 +53,7 @@ function endPhone(outcome, { silent = false } = {}) {
   if (p.status === 'idle') return;
   stopSounds();
   const storyEnded = p.kind === 'story' && ['finished', 'hungup', 'declined'].includes(outcome);
-  if (!silent && storyEnded) audio.play('call_hangup');
+  if (!silent && (storyEnded || (p.kind === 'dial' && p.status === 'connected'))) audio.play('call_hangup');
   if (p.sub) emit('subtitle', { key: null });
   set('phone', { status: 'idle', kind: null, id: null, name: null, t: 0, sub: null });
   if (p.kind === 'story') emit('call:end', {
@@ -54,6 +62,36 @@ function endPhone(outcome, { silent = false } = {}) {
     outcome,
     durationSec: p.t,
   });
+  else if (p.kind === 'dial') emit('call:end', { id: p.id, kind: 'dial', outcome });
+}
+
+// ---------- вызов контакта ----------
+function startDial(contactId = 'phoneGuy') {
+  const cfg = contacts[contactId];
+  if (!cfg || !state.running || state.tokens <= 0 || state.phone.status !== 'idle') return;
+  set('phone', { status: 'dialing', kind: 'dial', id: contactId, name: cfg.name, t: 0, sub: null });
+  ringSnd = audio.play('call_ringback', { loop: true });
+  emit('call:start', { id: contactId, kind: 'dial' });
+}
+
+function tickDial(dt) {
+  const p = state.phone;
+  const cfg = contacts[p.id] ?? {};
+  const t = p.t + dt;
+  setPhone({ t });
+  if (p.status === 'dialing') {
+    if (state.night === cfg.answerNight && t >= (cfg.answerAfterSec ?? 9)) {
+      if (ringSnd) { audio.stop(ringSnd); ringSnd = null; }
+      audio.play('call_pickup');
+      set('flags.fifthAnswered', true);
+      setPhone({ status: 'connected', t: 0 });
+    } else if (t >= (cfg.ringSec ?? 20)) {
+      if (ringSnd) { audio.stop(ringSnd); ringSnd = null; }
+      setPhone({ status: 'noanswer', t: 0 });
+    }
+  } else if (p.status === 'noanswer' && t >= (cfg.noAnswerSec ?? 2.5)) {
+    endPhone('noanswer', { silent: true });
+  }
 }
 
 // ---------- запись ночи ----------
@@ -99,12 +137,14 @@ function tickStory(dt) {
 on('tick', ({ dt }) => {
   if (!state.running) return;
   const p = state.phone;
+  if (p.kind === 'dial' && state.tokens <= 0) { endPhone('cutoff', { silent: true }); return; }
   if (p.status === 'idle') {
     for (const [id, def] of Object.entries(calls)) {
       if (def.night !== state.night || def.kind !== 'story' || !def.autoplay || started.has(id)) continue;
       if (state.time >= (def.startAtSec ?? 0)) { startIncoming(id); return; }
     }
   }
+  if (p.kind === 'dial') tickDial(dt);
   if (p.kind === 'story') {
     if (p.status === 'incoming') {
       const def = calls[p.id];
@@ -128,7 +168,9 @@ on('intent:declineCall', ({ id } = {}) => {
 on('intent:hangUpCall', () => {
   const p = state.phone;
   if (p.kind === 'story' && p.status === 'playing') endPhone('hungup');
+  else if (p.kind === 'dial') endPhone('hungup');
 });
+on('intent:dial', ({ contact } = {}) => startDial(contact));
 
 // ---------- смена ночи, токены ----------
 on('night:start', () => {

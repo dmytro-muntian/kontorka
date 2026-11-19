@@ -3,7 +3,8 @@
 // Читает из state: sla, load, appetite, time, tickets. Реакции на звонок получает через onEvent('call:start').
 //
 // ID звуков, которые этот враг просит у audio.play() (появятся на этапе 8; пока audio.play нет, вызовы пропускаются):
-// step, whistle_mr404, laugh_mr404, warning_attack, glass_knock, door_open, door_slam, toilet_water (имена каталога, раздел 12)
+// step, whistle_mr404, laugh_mr404, warning_attack, glass_knock, door_open, door_slam, toilet_water (имена каталога, раздел 12),
+// (цитата mr404_quote здесь не играет: её запускает ui/desk.js на экране «Смена провалена» после скримера этого врага)
 //
 // Допущение до этапа 7: тикет в state.tickets считается открытым, если у него нет done: true;
 // возраст в секундах берётся из tk.age или считается как state.time - tk.openedAt.
@@ -21,6 +22,9 @@ const DEFAULTS = {
   attack: { dwellSec: 10, warningToJumpscareSec: [3, 5] },
   slaGood: 60, slaBad: 40, whistleChancePer10s: 0.1,
   doorKnockSec: [1.8, 2.6],   // пауза между стуком и входом с южного этажа в зал
+  // 0% токенов (раздел 18, «Токены закончились»): он идёт прямо к s_hall3 вместо обычного маршрута, окна отпугивания нет,
+  // на стадии предупреждения звучит обычное warning_attack, потом скример.
+  dark: { travelSec: [8, 12], minStepSec: 0.8, maxStepSec: 4, warningToJumpscareSec: [5, 8] },
 };
 
 const KNOCK_BEFORE_SEC = 6;          // стук в стеклянную дверь за 6 с до появления
@@ -34,6 +38,7 @@ export function create(cfg, ctx) {
     ...DEFAULTS, ...cfg,
     lure: { ...DEFAULTS.lure, ...(cfg?.lure || {}) },
     attack: { ...DEFAULTS.attack, ...(cfg?.attack || {}) },
+    dark: { ...DEFAULTS.dark, ...(cfg?.dark || {}) },
   };
 
   const R = (a, b) => a + rng() * (b - a);
@@ -45,6 +50,7 @@ export function create(cfg, ctx) {
   const enemy = { id, pos: null, status: 'idle', update, onEvent, forceMove };
 
   // 'absent' (ещё не пришёл) | 'pause' | 'dash' | 'lured' (идёт на звонок) | 'dwell' | 'toilet' | 'break' | 'warning' | 'dead'
+  // | 'dark' (0% токенов: идёт к s_hall3 вслепую; потом обычная стадия 'warning' с цитатой)
   let mode = 'absent';
   let frozen = false;       // отладка: остановить ИИ, пока подбираются спрайты
   let timer = 0;            // обратный отсчёт текущего режима
@@ -59,6 +65,8 @@ export function create(cfg, ctx) {
   let pauseMul = 1;         // 0,9 после звонка при плохом рейтинге, действует на следующую паузу
   let whistleAcc = 0;
   let laughArmed = true;
+  let darkPath = [];        // оставшиеся шаги до s_hall3 при 0% токенов
+  let darkStep = 1.5;       // интервал между этими шагами
 
   // ---------- вспомогательное ----------
   function setStatus(status, dwell = false) {
@@ -140,9 +148,9 @@ export function create(cfg, ctx) {
     setStatus('idle', true);   // виден на камере 8 (и 7): последний шанс отогнать приманкой
   }
 
-  function enterWarning() {
+  function enterWarning(dark = false) {
     mode = 'warning';
-    timer = range(C.attack.warningToJumpscareSec);
+    timer = range(dark ? C.dark.warningToJumpscareSec : C.attack.warningToJumpscareSec);
     moveTo('desk');            // за спиной игрока; для камер он пропадает (статус warning)
     setStatus('warning');
     play('warning_attack', 'desk');
@@ -228,6 +236,61 @@ export function create(cfg, ctx) {
     }
   }
 
+  // ---------- темнота: 0% токенов ----------
+  const inDark = () => mode === 'dark';
+
+  // Кратчайший путь по графу до target (без стола); пусто, если уже там или пути нет.
+  function pathTo(target) {
+    const start = enemy.pos;
+    if (!start || start === target) return [];
+    const prev = { [start]: null };
+    const queue = [start];
+    while (queue.length) {
+      const cur = queue.shift();
+      if (cur === target) break;
+      for (const nb of graph.neighbors(cur)) {
+        if (nb === 'desk' || nb in prev) continue;
+        prev[nb] = cur;
+        queue.push(nb);
+      }
+    }
+    if (!(target in prev)) return [];
+    const path = [];
+    for (let p = target; p && p !== start; p = prev[p]) path.unshift(p);
+    return path;
+  }
+
+  function enterDark() {
+    lure = null;
+    returning = false;
+    goFloor = false;
+    doorKnocked = false;
+    if (waterHandle) { audio.stop?.(waterHandle); waterHandle = null; }
+    if (enemy.pos === null) { trail = ['n_stairs']; moveTo('n_stairs'); }   // ещё не приходил: появляется в темноте
+    if (enemy.pos !== 's_hall3') {
+      darkPath = pathTo('s_hall3');
+      if (darkPath.length === 0) moveTo('s_hall3');                          // пути нет: не оставляем его где попало
+    }
+    if (enemy.pos === 's_hall3') { enterWarning(true); return; }             // уже там: окна отпугивания нет
+    // весь путь занимает travelSec, но шаги не чаще minStepSec и не реже maxStepSec
+    darkStep = Math.max(C.dark.minStepSec, Math.min(C.dark.maxStepSec, range(C.dark.travelSec) / darkPath.length));
+    mode = 'dark';
+    stepTimer = darkStep;
+    setStatus('dash');
+  }
+
+  function updateDark(dt) {
+    if (state.tokens > 0) { startPause(0); return; }   // токены вернули (отладка): темнота отменена
+    stepTimer -= dt;
+    if (stepTimer > 0) return;
+    const next = darkPath[0];
+    if (needsKnock(enemy.pos, next)) { stepTimer = knockAtDoor(); return; }
+    darkPath.shift();
+    walkTo(next);
+    if (darkPath.length === 0) enterWarning(true);
+    else stepTimer = darkStep;
+  }
+
   // ---------- приманка ----------
   // Звонок привязан к месту: звонит телефон в комнате открытой камеры (payload.at). Враг не телепортируется:
   // он реагирует с задержкой, потом идёт к этому месту шагами по графу (быстрее всего слышно ближайших),
@@ -261,7 +324,7 @@ export function create(cfg, ctx) {
   }
 
   function onLure(payload) {
-    if (mode === 'absent' || mode === 'toilet' || mode === 'break' || mode === 'warning' || mode === 'dead') return;
+    if (mode === 'absent' || mode === 'toilet' || mode === 'break' || mode === 'warning' || mode === 'dead' || inDark()) return;
     const at = payload?.at;
     if (!at) return;
     const sla = state.sla;
@@ -340,6 +403,10 @@ export function create(cfg, ctx) {
 
   function update(dt) {
     if (frozen || mode === 'dead') return;
+
+    // 0% токенов перебивает всё, кроме уже начавшейся стадии предупреждения.
+    if (state.running && state.tokens <= 0 && !inDark() && mode !== 'warning') enterDark();
+    if (inDark()) { updateDark(dt); return; }
 
     // Смех: один раз, когда рейтинг падает ниже порога; снова после подъёма выше 50.
     if (mode !== 'absent') {

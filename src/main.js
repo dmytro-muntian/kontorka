@@ -163,6 +163,7 @@ function launchNight() {
   audio.init();
   overloaded = false;
   warning = false;
+  blackout = false;
   syncAmbient();
   newNight(state.night, nights[state.night] || {});
   lastHour = 0;
@@ -218,6 +219,13 @@ function resumeMinigame() {
   });
 }
 
+// Утро: переход 5 AM → 6 AM. Ход считается из tick, оформление рисуют desk.js и teams.js по событиям morning:*.
+// Шаги: тишина и часы на 5 AM → часы меняются на 6 AM, рассвет и куранты → отчёт ИИ-агента в Teams →
+// лишнее уведомление пятого → табель смен → затемнение в мини-игру. Тайминги в data/nights.json, блок morning.
+const MORNING_DEFAULTS = { silenceSec: 2.5, reportAfterSec: 2, phantomAfterSec: 5, holdSec: 4.5 };
+let morning = null;
+let morningChimeDone = false;
+
 on('night:end', ({ n, failed }) => {
   if (failed || state.progress.gameComplete) return;
   set('progress', {
@@ -228,9 +236,41 @@ on('night:end', ({ n, failed }) => {
     summary: minigameSummary(),
   });
   save();
-  const chime = audio.play('night_end_chime');
-  audio.whenFinished(chime).then(() => fadeThrough(() => resumeMinigame(), { out: 900 }));
+  morning = { t: 0, step: 0, n, cfg: { ...MORNING_DEFAULTS, ...(nights[n]?.morning ?? {}) }, summary: state.progress.summary };
+  morningChimeDone = false;
+  emit('morning:start', { n, summary: morning.summary });
 });
+
+on('tick', ({ dt }) => {
+  if (!morning) return;
+  const m = morning;
+  const c = m.cfg;
+  m.t += dt;
+  if (m.step === 0 && m.t >= c.silenceSec) {
+    m.step = 1;
+    emit('morning:flip', { n: m.n });
+    const chime = audio.play('night_end_chime');
+    audio.whenFinished(chime).then(() => { morningChimeDone = true; });
+  }
+  if (m.step === 1 && m.t >= c.silenceSec + c.reportAfterSec) {
+    m.step = 2;
+    emit('morning:report', { n: m.n, summary: m.summary });
+  }
+  if (m.step === 2 && m.t >= c.silenceSec + c.phantomAfterSec) {
+    m.step = 3;
+    if (m.n < 5) emit('glitch', { type: 'phantomNotify', source: 'fifth', ttlSec: 4 });
+  }
+  if (m.step === 3 && m.t >= c.silenceSec + c.holdSec) {
+    m.step = 4;
+    emit('morning:card', { n: m.n });
+  }
+  if (m.step === 4 && morningChimeDone && m.t >= c.silenceSec + c.holdSec + 3) {
+    morning = null;
+    fadeThrough(() => resumeMinigame(), { out: 900 });
+  }
+});
+on('night:start', () => { morning = null; });
+on('game:menu', () => { morning = null; });
 
 on('intent:minigameBegin', () => {
   if (state.progress.minigamePending === null) return;
@@ -536,6 +576,8 @@ on('night:start', () => {
 on('tokens:change', ({ value }) => {
   if (value > 0 || !state.running || shutdownSndPlayed) return;
   shutdownSndPlayed = true;
+  blackout = true;      // гул ПК и напряжение гаснут, фон темноты
+  syncAmbient();
   audio.play('tokens_zero');
   audio.play('power_out');
 });
@@ -578,10 +620,12 @@ on('glitch', ({ type, target }) => {
 // Фон: гул и ночь всегда; напряжение при перегрузке сети и во время предупреждения об атаке; темнота с ночи 4.
 let overloaded = false;
 let warning = false;
+let blackout = false;   // 0% токенов: ПК обесточены
 function syncAmbient() {
-  const list = ['amb_pc_hum', 'amb_night'];
-  if (overloaded || warning) list.push('amb_tension');
-  if (state.night >= 4) list.push('amb_dark');
+  // 0% токенов (раздел 12): гаснут гул ПК и напряжение, остаются ночь и тёмный фон
+  const list = blackout ? ['amb_night'] : ['amb_pc_hum', 'amb_night'];
+  if (!blackout && (overloaded || warning)) list.push('amb_tension');
+  if (blackout || state.night >= 4) list.push('amb_dark');
   audio.setAmbient(list);
 }
 on('enemy:status', ({ status }) => { warning = status === 'warning'; if (state.running) syncAmbient(); });
@@ -603,14 +647,22 @@ on('tick', () => {
   else if (!broken && staticSnd) { audio.stop(staticSnd); staticSnd = null; }
 });
 
-// Щелчок интерфейса на любой кнопке.
+// Щелчок интерфейса на любой кнопке. Три группы со своими звуками (в sounds.json их можно заменить файлами):
+// ui_click_mg: кнопки мини-игры; ui_click_tablet: кнопки на мониторах-планшете (камеры, Teams); ui_click_menu: меню, пауза, экраны.
+function uiSoundFor(button) {
+  if (button.closest('.mg-screen')) return 'ui_click_mg';
+  if (button.closest('.rc-root')) return 'ui_click_tablet';   // планшет с заявкой на работу (ui/recruitment.js)
+  if (button.closest('#monitor-left, #monitor-right')) return 'ui_click_tablet';
+  if (button.closest('.main-menu, .pause-screen, .shift-failed, .rc-root, .pause-button')) return 'ui_click_menu';
+  return 'ui_click';
+}
 document.addEventListener('pointerdown', (e) => {
   const button = e.target.closest?.('button');
   if (!button || button.dataset.actionSound || e.target.closest?.('.dbg-panel, .dbg-toggle')) return;
   const overlay = button.closest('.main-menu, .pause-screen, .shift-failed, .mg-screen, .rc-root');
   if (button.dataset.noUiClick !== 'true' || overlay) {
     const paused = !!button.closest('.pause-screen, .main-menu.is-pause-settings');
-    audio.play('ui_click', paused ? { allowPaused: true } : {});
+    audio.play(uiSoundFor(button), paused ? { allowPaused: true } : {});
   }
 });
 document.addEventListener('pointerover', (e) => {
@@ -618,7 +670,7 @@ document.addEventListener('pointerover', (e) => {
   if (!button || button.disabled || (e.relatedTarget && button.contains(e.relatedTarget))
     || !button.closest('.main-menu, .pause-screen')) return;
   const paused = !!button.closest('.pause-screen, .main-menu.is-pause-settings');
-  audio.play('ui_click', { volume: 0.3, ...(paused ? { allowPaused: true } : {}) });
+  audio.play('ui_click_menu', { volume: 0.3, ...(paused ? { allowPaused: true } : {}) });
 });
 
 on('night:end', () => {

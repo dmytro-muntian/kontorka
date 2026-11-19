@@ -482,5 +482,20 @@
   "recruit.footer.id": "Stellen-ID: KTK-NS-0841",
   "recruit.confirm.title": "Bewerbung gesendet",
   "recruit.confirm.text": "Ihre Bewerbung wurde erfolgreich übermittelt. Vielen Dank für Ihr Interesse an KONTORKA!",
-  "recruit.confirm.next": "Weiter"
+  "recruit.confirm.next": "Weiter",
+  "ui.failed.line": "Mitarbeiter ersetzt. Zugang zum Konto gesperrt.",
+  "morning.report.name": "KI-Agent",
+  "morning.report.time": "06:00",
+  "morning.report.title": "Arbeitstag beendet. Agentensitzung geschlossen.",
+  "morning.report.tokens": "Tokens verbraucht: {spent}%",
+  "morning.report.sla": "Support-Bewertung: {sla}",
+  "morning.report.tickets": "Tickets geschlossen: {resolved}, verpasst: {missed}",
+  "morning.report.shift": "Schicht {n} von 5 angenommen.",
+  "morning.report.thanks": "Danke für Ihre Arbeit. Bis heute Abend.",
+  "morning.card.progress": "Schichten angenommen: {n} / 5",
+  "calls.contact.phoneGuy": "Nachtkollege",
+  "calls.status.dialing": "Ruf…",
+  "calls.status.noanswer": "Keine Antwort",
+  "calls.status.connected": "Verbunden",
+  "calls.button.dial": "Anrufen"
 }

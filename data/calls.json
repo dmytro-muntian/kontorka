@@ -155,5 +155,14 @@
     "unlocks": [
       "c001"
     ]
+  },
+  "contacts": {
+    "phoneGuy": {
+      "name": "calls.contact.phoneGuy",
+      "ringSec": 20,
+      "noAnswerSec": 2.5,
+      "answerNight": 5,
+      "answerAfterSec": 9
+    }
   }
 }
